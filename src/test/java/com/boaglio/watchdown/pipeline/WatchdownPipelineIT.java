@@ -48,7 +48,7 @@ class WatchdownPipelineIT {
                 SummaryConfig.defaults());
         ConsoleReporter reporter = new ConsoleReporter(System.out, System.err, true);
 
-        factory.doctor(config).requireAll();
+        factory.doctor(config).require(Doctor.Needs.of(true, false, false));
         VideoJob job = factory.create(config, reporter, true).run(url);
 
         assertThat(job.exitCode()).isZero();

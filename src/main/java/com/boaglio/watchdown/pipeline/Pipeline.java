@@ -5,6 +5,8 @@ import com.boaglio.watchdown.cli.ConsoleReporter;
 import com.boaglio.watchdown.cli.ExitCode;
 import com.boaglio.watchdown.config.WatchdownConfig;
 import com.boaglio.watchdown.download.Downloader;
+import com.boaglio.watchdown.download.LocalMedia;
+import com.boaglio.watchdown.download.MediaProbe;
 import com.boaglio.watchdown.download.VideoMetadata;
 import com.boaglio.watchdown.download.YouTubeUrl;
 import com.boaglio.watchdown.render.MarkdownRenderer;
@@ -42,6 +44,7 @@ public class Pipeline {
     private final Downloader downloader;
     private final Transcriber transcriber;
     private final CaptionParser captionParser;
+    private final MediaProbe probe;
     private final Summarizer summarizer;
     private final MarkdownRenderer renderer;
     private final Cache cache;
@@ -51,11 +54,12 @@ public class Pipeline {
     private final String version;
 
     public Pipeline(Downloader downloader, Transcriber transcriber, CaptionParser captionParser,
-            Summarizer summarizer, MarkdownRenderer renderer, Cache cache, WatchdownConfig config,
-            ConsoleReporter reporter, JsonMapper mapper, String version) {
+            MediaProbe probe, Summarizer summarizer, MarkdownRenderer renderer, Cache cache,
+            WatchdownConfig config, ConsoleReporter reporter, JsonMapper mapper, String version) {
         this.downloader = downloader;
         this.transcriber = transcriber;
         this.captionParser = captionParser;
+        this.probe = probe;
         this.summarizer = summarizer;
         this.renderer = renderer;
         this.cache = cache;
@@ -76,7 +80,36 @@ public class Pipeline {
         Path material = materialFor(url, source);
         reporter.stepDone();
 
-        Transcript transcript = transcribe(url, source, material);
+        Transcript transcript = transcribe(url.videoId(), source, material);
+        return summarizeAndWrite(url.canonicalUrl(), metadata, transcript, source);
+    }
+
+    /**
+     * The same four steps for a file that is already on disk. Nothing is downloaded, captions do
+     * not apply, and the user's file is never moved, copied or deleted.
+     */
+    public VideoJob run(LocalMedia media) {
+        reporter.stepStart(1, STEPS, "Reading");
+        int duration = probe.durationOf(media.path());
+        VideoMetadata metadata = media.asMetadata(duration);
+        reporter.detail("\"%s\" (%s)".formatted(metadata.title(),
+                duration > 0 ? Timestamps.duration(duration) : "unknown length"));
+        reporter.stepDone();
+
+        TranscriptSource source = new TranscriptSource(TranscriptSource.Kind.WHISPER,
+                config.whisper().language(),
+                "whisper " + config.whisper().model() + ", lang=" + config.whisper().language());
+        Transcript transcript = transcribe(media.id(), source, media.path());
+
+        if (duration <= 0) {
+            // No ffprobe: the transcript is the only thing that knows how long the recording is.
+            metadata = media.asMetadata((int) Math.ceil(transcript.endsAt()));
+        }
+        return summarizeAndWrite(media.display(), metadata, transcript, source);
+    }
+
+    private VideoJob summarizeAndWrite(String jobSource, VideoMetadata metadata, Transcript transcript,
+            TranscriptSource source) {
         Summary summary = null;
         String failure = null;
 
@@ -94,8 +127,8 @@ public class Pipeline {
 
         Path folder = write(metadata, transcript, source, summary, failure);
         return summary == null
-                ? VideoJob.failed(url, folder, ExitCode.SUMMARIZATION_FAILED, failure)
-                : VideoJob.succeeded(url, folder);
+                ? VideoJob.failed(jobSource, folder, ExitCode.SUMMARIZATION_FAILED, failure)
+                : VideoJob.succeeded(jobSource, folder);
     }
 
     private VideoMetadata metadata(YouTubeUrl url) {
@@ -147,7 +180,7 @@ public class Pipeline {
         return downloader.downloadAudio(url, cache.directoryFor(url.videoId()));
     }
 
-    private Transcript transcribe(YouTubeUrl url, TranscriptSource source, Path material) {
+    private Transcript transcribe(String id, TranscriptSource source, Path material) {
         if (source.fromCaptions()) {
             reporter.stepStart(2, STEPS, "Transcribing", source.display());
             Transcript transcript = captionParser.read(material, source.language());
@@ -155,7 +188,7 @@ public class Pipeline {
             return logged(transcript);
         }
 
-        Path transcriptFile = cache.transcriptFile(url.videoId());
+        Path transcriptFile = cache.transcriptFile(id);
         if (cache.isHit(transcriptFile)) {
             log.debug("cache hit: {}", transcriptFile);
             reporter.stepStart(2, STEPS, "Transcribing", "cached transcript");
@@ -166,7 +199,7 @@ public class Pipeline {
 
         log.debug("cache miss: {}", transcriptFile);
         reporter.stepStart(2, STEPS, "Transcribing", source.display());
-        Transcript transcript = transcriber.transcribe(material, cache.directoryFor(url.videoId()),
+        Transcript transcript = transcriber.transcribe(material, cache.directoryFor(id),
                 config.whisper().language());
         reporter.stepDone();
         return logged(transcript);
@@ -188,7 +221,10 @@ public class Pipeline {
         return folder;
     }
 
-    /** The audio is deleted after a successful transcription unless the user asked to keep it. */
+    /**
+     * The downloaded audio is deleted after a successful transcription unless the user asked to
+     * keep it. This only ever touches the cache, so a {@code --file} input is left alone.
+     */
     private void handleAudio(String videoId, Path folder) {
         Path audio = cache.audioFile(videoId);
         if (!Files.isRegularFile(audio)) {

@@ -4,6 +4,7 @@ import com.boaglio.watchdown.cli.ConsoleReporter;
 import com.boaglio.watchdown.cli.Version;
 import com.boaglio.watchdown.config.OllamaConfig;
 import com.boaglio.watchdown.config.WatchdownConfig;
+import com.boaglio.watchdown.download.MediaProbe;
 import com.boaglio.watchdown.download.YtDlpDownloader;
 import com.boaglio.watchdown.process.ProcessRunner;
 import com.boaglio.watchdown.render.MarkdownRenderer;
@@ -55,6 +56,7 @@ public class PipelineFactory {
                 new YtDlpDownloader(runner, mapper, config.ytDlp()),
                 new WhisperTranscriber(runner, mapper, config.whisper()),
                 new CaptionParser(mapper),
+                new MediaProbe(runner),
                 new OllamaSummarizer(chatClient(config), chunkPrompt, finalPrompt, config.summary()),
                 new MarkdownRenderer(clock),
                 new Cache(config.cacheDir(), force),

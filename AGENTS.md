@@ -25,6 +25,7 @@ update the code and tests in the same commit.
 ### Goals (v1)
 
 - One or more YouTube video URLs in, one output folder per video out.
+- Local audio or video files too, through `--file` (§6.6).
 - Everything runs **locally**: no cloud APIs and no API keys.
 - Transcripts include timestamps, and every summary point links back to the
   exact moment in the video.
@@ -36,7 +37,6 @@ update the code and tests in the same commit.
 ### Non-goals (v1)
 
 - Playlists and channels (reject them with a clear message).
-- Local audio/video files (`--file`) are a candidate for v2.
 - Any GUI, web server, or REST API. The app is **non-web**.
 - Speaker diarization.
 
@@ -60,7 +60,7 @@ External tools. They are not bundled, and the app calls them as processes:
 | Tool      | Purpose                              | Check                   |
 |-----------|--------------------------------------|-------------------------|
 | `yt-dlp`  | metadata + audio download            | `yt-dlp --version`      |
-| `ffmpeg`  | audio extraction (used by yt-dlp and whisper); not needed with `--captions only` | `ffmpeg -version` |
+| `ffmpeg`  | audio extraction, and `ffprobe` for the length of a `--file` input | `ffmpeg -version` |
 | `whisper` | transcription (openai-whisper CLI); not needed with `--captions only` | `whisper --help` |
 | `ollama`  | local LLM server (HTTP, default `http://localhost:11434`) | `ollama list` |
 
@@ -90,10 +90,13 @@ Run `./mvnw test` before you finish any change.
 ## 4. Command-line interface
 
 ```
-Usage: watchdown [OPTIONS] <url>...
+Usage: watchdown [OPTIONS] [<url>...]
 
-  <url>...                 One or more YouTube video URLs
+  <url>...                 Zero or more YouTube video URLs
                            (youtube.com/watch?v=, youtu.be/, youtube.com/shorts/)
+
+  -F, --file <path>        A local audio or video file instead of a URL.
+                           Repeatable, and it can be mixed with URLs.
 
   -o, --output <dir>       Output root directory          (config: outputDir)
   -c, --config <file>      Config file to use             (default: see §5)
@@ -160,8 +163,13 @@ reserved for the final output paths, one per line.
 | 5    | Transcription failed                                 |
 | 6    | Summarization failed (the transcript is still written) |
 
-If you pass several URLs, one failure doesn't stop the others. The exit
-code is the highest code any URL produced.
+If you pass several URLs or files, one failure doesn't stop the others. The
+exit code is the highest code any job produced.
+
+Only the dependencies a run actually uses are required: a run of URLs with
+`--captions only` needs no whisper and no ffmpeg, and a run of `--file`
+inputs needs no yt-dlp. `--check` reports on what the given arguments and
+configuration would need.
 
 ---
 
@@ -325,7 +333,25 @@ half-written folder that looks complete.
 - Delete the audio after a successful transcription unless `keepAudio` is
   set, in which case copy it into the output folder.
 
-### 6.6 Partial failure
+### 6.6 Local files (`--file`)
+
+A `--file` input skips the download step entirely and goes straight to
+Whisper; captions do not apply. Whisper reads video containers directly, so
+no conversion is needed.
+
+- The id is the first 8 hex characters of the SHA-256 of the absolute path,
+  so the same file keeps its cache directory and output folder across runs,
+  and two files with the same name in different directories don't collide.
+- The title is the file name without its extension; there is no channel, and
+  the date is the file's last-modified date.
+- The length comes from `ffprobe`; when that isn't available it comes from
+  the end of the transcript, so a missing ffprobe never fails a run.
+- There is no URL to link to, so every timestamp is rendered as plain
+  `[mm:ss]` instead of a link, and `url:` in the front matter is empty.
+- **The user's file is never moved, copied, or deleted.** `--keep-audio`
+  only ever applies to audio that watchdown downloaded itself.
+
+### 6.7 Partial failure
 
 If summarization fails, still write `transcript.md` and an `AGENTS.md`
 that says the summary is missing and why. Then exit with code 6.
@@ -349,7 +375,8 @@ characters replaced by `-` and cut to 60 characters. Rerunning the same
 video overwrites its folder.
 
 Timestamp links always use the format `[mm:ss](https://www.youtube.com/watch?v=<id>&t=<seconds>s)`,
-or `h:mm:ss` for videos an hour or longer.
+or `h:mm:ss` for videos an hour or longer. A `--file` input has nothing to link
+to, so its timestamps are plain `[mm:ss]`.
 
 ### 7.1 `AGENTS.md` (generated)
 
@@ -419,11 +446,11 @@ src/main/java/com/boaglio/watchdown/
   cli/          WatchdownCommand (picocli @Command), ExitCode, ConsoleReporter
   config/       WatchdownConfig + nested records, ConfigLoader, ConfigResolver
   process/      ProcessRunner (interface), DefaultProcessRunner, ProcessResult
-  download/     YouTubeUrl, VideoMetadata, YtDlpDownloader
+  download/     YouTubeUrl, VideoMetadata, YtDlpDownloader, LocalMedia, MediaProbe
   transcribe/   Transcriber, WhisperTranscriber, Transcript, Segment
   summarize/    Summarizer, OllamaSummarizer, Chunker, Summary
   render/       MarkdownRenderer, Slugs, Timestamps
-  pipeline/     Pipeline, VideoJob, Cache, Doctor (--check)
+  pipeline/     Pipeline, VideoJob, Cache, Doctor (--check), CaptionPolicy
 src/main/resources/
   application.yaml                     # non-web, banner off, logging levels
   prompts/chunk-summary.st
@@ -485,6 +512,8 @@ src/test/resources/
   - the caption policy: each mode, the fallback to Whisper, language matching
   - timestamp formatting and link building (`mm:ss` and `h:mm:ss`)
   - slug generation: accents, emoji, length cap
+  - local files: title and id from the path, rejecting a missing file or a
+    directory, and rendering without a URL
   - summary JSON parsing, the single retry, and dropping out-of-range
     timestamps
   - exit-code mapping for each exception type

@@ -6,6 +6,7 @@ import com.boaglio.watchdown.config.CliOptions;
 import com.boaglio.watchdown.config.ConfigLoader;
 import com.boaglio.watchdown.config.ConfigResolver;
 import com.boaglio.watchdown.config.WatchdownConfig;
+import com.boaglio.watchdown.download.LocalMedia;
 import com.boaglio.watchdown.download.YouTubeUrl;
 import com.boaglio.watchdown.pipeline.Doctor;
 import com.boaglio.watchdown.pipeline.Pipeline;
@@ -19,6 +20,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
+import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.logging.LogLevel;
@@ -49,6 +51,11 @@ public class WatchdownCommand implements Callable<Integer> {
     @Parameters(arity = "0..*", paramLabel = "<url>",
             description = "One or more YouTube video URLs.")
     private List<String> urls = new ArrayList<>();
+
+    @Option(names = {"-F", "--file"}, paramLabel = "<path>",
+            description = "A local audio or video file to process instead of a URL. Repeatable, "
+                    + "and it can be mixed with URLs.")
+    private List<Path> files = new ArrayList<>();
 
     @Option(names = {"-o", "--output"}, paramLabel = "<dir>",
             description = "Output root directory (config: outputDir).")
@@ -152,41 +159,53 @@ public class WatchdownCommand implements Callable<Integer> {
             describe(resolution, file);
         }
 
+        boolean captionsOnly = !config.captions().allowsWhisper();
         if (check) {
-            return report(pipelineFactory.doctor(config), reporter);
+            // With nothing to process, report on everything the configuration could ask for.
+            Doctor.Needs needs = urls.isEmpty() && files.isEmpty()
+                    ? Doctor.Needs.of(true, false, captionsOnly)
+                    : Doctor.Needs.of(!urls.isEmpty(), !files.isEmpty(), captionsOnly);
+            return report(pipelineFactory.doctor(config), needs, reporter);
         }
-        if (urls.isEmpty()) {
-            throw new UsageException("no URL given. Try 'watchdown --help'.");
+        if (urls.isEmpty() && files.isEmpty()) {
+            throw new UsageException("no URL or --file given. Try 'watchdown --help'.");
         }
 
         List<YouTubeUrl> parsed = urls.stream().map(YouTubeUrl::parse).toList();
-        pipelineFactory.doctor(config).requireAll();
+        List<LocalMedia> media = files.stream().map(LocalMedia::of).toList();
+        pipelineFactory.doctor(config)
+                .require(Doctor.Needs.of(!parsed.isEmpty(), !media.isEmpty(), captionsOnly));
 
         Pipeline pipeline = pipelineFactory.create(config, reporter, force);
         int worst = ExitCode.OK;
         for (YouTubeUrl url : parsed) {
-            worst = ExitCode.worst(worst, runOne(pipeline, url, reporter));
+            worst = ExitCode.worst(worst, runOne(reporter, url.canonicalUrl(), () -> pipeline.run(url)));
+        }
+        for (LocalMedia recording : media) {
+            worst = ExitCode.worst(worst,
+                    runOne(reporter, recording.display(), () -> pipeline.run(recording)));
         }
         return worst;
     }
 
-    private int runOne(Pipeline pipeline, YouTubeUrl url, ConsoleReporter reporter) {
+    /** One job: a failure is reported and turned into an exit code, and the others still run. */
+    private int runOne(ConsoleReporter reporter, String source, Supplier<VideoJob> job) {
         try {
-            VideoJob job = pipeline.run(url);
-            if (job.wroteSomething()) {
-                reporter.output(job.outputFolder());
+            VideoJob result = job.get();
+            if (result.wroteSomething()) {
+                reporter.output(result.outputFolder());
             }
-            return job.exitCode();
+            return result.exitCode();
         } catch (WatchdownException e) {
-            reporter.error(url.canonicalUrl() + ": " + e.getMessage());
-            log.debug("{} failed", url.canonicalUrl(), e);
+            reporter.error(source + ": " + e.getMessage());
+            log.debug("{} failed", source, e);
             return e.exitCode();
         }
     }
 
-    private int report(Doctor doctor, ConsoleReporter reporter) {
+    private int report(Doctor doctor, Doctor.Needs needs, ConsoleReporter reporter) {
         int exitCode = ExitCode.OK;
-        for (Doctor.Check result : doctor.checkAll()) {
+        for (Doctor.Check result : doctor.checkAll(needs)) {
             reporter.info("%-8s %-4s %s".formatted(result.name(), result.ok() ? "ok" : "FAIL", result.detail()));
             if (!result.ok()) {
                 reporter.info("         " + result.hint());

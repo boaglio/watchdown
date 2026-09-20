@@ -11,6 +11,8 @@ import com.boaglio.watchdown.config.WhisperConfig;
 import com.boaglio.watchdown.config.YtDlpConfig;
 import com.boaglio.watchdown.cli.ConsoleReporter;
 import com.boaglio.watchdown.download.Downloader;
+import com.boaglio.watchdown.download.LocalMedia;
+import com.boaglio.watchdown.download.MediaProbe;
 import com.boaglio.watchdown.download.VideoMetadata;
 import com.boaglio.watchdown.download.YouTubeUrl;
 import com.boaglio.watchdown.render.MarkdownRenderer;
@@ -19,6 +21,7 @@ import com.boaglio.watchdown.summarize.Section;
 import com.boaglio.watchdown.summarize.SummarizationException;
 import com.boaglio.watchdown.summarize.Summarizer;
 import com.boaglio.watchdown.summarize.Summary;
+import com.boaglio.watchdown.process.FakeProcessRunner;
 import com.boaglio.watchdown.transcribe.CaptionParser;
 import com.boaglio.watchdown.transcribe.Segment;
 import com.boaglio.watchdown.transcribe.Transcript;
@@ -167,6 +170,49 @@ class PipelineTest {
     }
 
     @Test
+    void transcribesALocalFileWithoutDownloadingAnything() throws IOException {
+        FakeDownloader downloader = new FakeDownloader();
+        FakeTranscriber transcriber = new FakeTranscriber();
+        LocalMedia recording = LocalMedia.of(recordingFile());
+
+        VideoJob job = pipeline(downloader, transcriber, summarizer(), config(false), false).run(recording);
+
+        assertThat(job.exitCode()).isZero();
+        assertThat(job.source()).isEqualTo("standup.m4a");
+        assertThat(downloader.metadataCalls).isZero();
+        assertThat(downloader.audioCalls).isZero();
+        assertThat(transcriber.transcribeCalls).isEqualTo(1);
+        assertThat(job.outputFolder().getFileName().toString()).startsWith("standup-");
+        assertThat(Files.readString(job.outputFolder().resolve("transcript.md")))
+                .doesNotContain("youtube.com");
+    }
+
+    @Test
+    void neverTouchesTheUsersOwnFile() {
+        Path file = recordingFile();
+        LocalMedia recording = LocalMedia.of(file);
+
+        pipeline(new FakeDownloader(), new FakeTranscriber(), summarizer(), config(true), false)
+                .run(recording);
+
+        assertThat(file).exists();
+    }
+
+    @Test
+    void takesTheDurationFromTheTranscriptWhenNothingCanProbeIt() throws IOException {
+        Pipeline pipeline = new Pipeline(new FakeDownloader(), new FakeTranscriber(),
+                new CaptionParser(Fixtures.mapper()),
+                new MediaProbe(new FakeProcessRunner().answering(1, "", "ffprobe: not found")),
+                summarizer(), new MarkdownRenderer(FIXED), new Cache(config(false).cacheDir(), false),
+                config(false), quietReporter(), Fixtures.mapper(), "1.0.0");
+
+        VideoJob job = pipeline.run(LocalMedia.of(recordingFile()));
+
+        assertThat(Files.readString(job.outputFolder().resolve("transcript.md")))
+                .contains("duration_seconds: 750");
+    }
+
+    @Test
     void printsOneLinePerStepOnStderr() {
         ByteArrayOutputStream err = new ByteArrayOutputStream();
         ByteArrayOutputStream out = new ByteArrayOutputStream();
@@ -188,14 +234,28 @@ class PipelineTest {
 
     private Pipeline pipeline(Downloader downloader, Transcriber transcriber, Summarizer summarizer,
             WatchdownConfig config, boolean force) {
-        return pipeline(downloader, transcriber, summarizer, config, force,
-                new ConsoleReporter(new PrintStream(new ByteArrayOutputStream()),
-                        new PrintStream(new ByteArrayOutputStream()), false));
+        return pipeline(downloader, transcriber, summarizer, config, force, quietReporter());
+    }
+
+    private static ConsoleReporter quietReporter() {
+        return new ConsoleReporter(new PrintStream(new ByteArrayOutputStream()),
+                new PrintStream(new ByteArrayOutputStream()), false);
+    }
+
+    private Path recordingFile() {
+        Path file = workspace.resolve("standup.m4a");
+        try {
+            Files.writeString(file, "audio");
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        return file;
     }
 
     private Pipeline pipeline(Downloader downloader, Transcriber transcriber, Summarizer summarizer,
             WatchdownConfig config, boolean force, ConsoleReporter reporter) {
-        return new Pipeline(downloader, transcriber, new CaptionParser(Fixtures.mapper()), summarizer,
+        return new Pipeline(downloader, transcriber, new CaptionParser(Fixtures.mapper()),
+                new MediaProbe(new FakeProcessRunner().answering("180.5\n")), summarizer,
                 new MarkdownRenderer(FIXED), new Cache(config.cacheDir(), force), config, reporter,
                 Fixtures.mapper(), "1.0.0");
     }

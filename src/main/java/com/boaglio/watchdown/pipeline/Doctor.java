@@ -29,22 +29,27 @@ public class Doctor {
         this.config = config;
     }
 
-    /**
-     * Runs every check and returns the results, without throwing.
-     *
-     * <p>{@code --captions only} never runs Whisper and never downloads audio, so neither Whisper
-     * nor ffmpeg has to be installed for it to work.
-     */
-    public List<Check> checkAll() {
-        boolean needsAudio = config.captions().allowsWhisper();
+    /** What a particular run needs, which is not always everything. */
+    public record Needs(boolean ytDlp, boolean whisper) {
+
+        /** Everything the current configuration could ask for, which is what {@code --check} reports. */
+        public static Needs of(boolean anyUrls, boolean anyFiles, boolean captionsOnly) {
+            return new Needs(anyUrls, anyFiles || (anyUrls && !captionsOnly));
+        }
+    }
+
+    /** Runs every check for what this run needs, without throwing. */
+    public List<Check> checkAll(Needs needs) {
         List<Check> checks = new ArrayList<>();
-        checks.add(tool("yt-dlp", List.of(config.ytDlp().path(), "--version"),
-                "install it with: pip install -U yt-dlp"));
-        checks.add(needsAudio
+        checks.add(needs.ytDlp()
+                ? tool("yt-dlp", List.of(config.ytDlp().path(), "--version"),
+                        "install it with: pip install -U yt-dlp")
+                : notNeeded("yt-dlp"));
+        checks.add(needs.whisper()
                 ? tool("ffmpeg", List.of("ffmpeg", "-version"),
                         "install it with your package manager, for example: apt install ffmpeg")
                 : notNeeded("ffmpeg"));
-        checks.add(needsAudio
+        checks.add(needs.whisper()
                 ? tool("whisper", List.of(config.whisper().path(), "--help"),
                         "install it with: pip install -U openai-whisper")
                 : notNeeded("whisper"));
@@ -53,12 +58,12 @@ public class Doctor {
     }
 
     private static Check notNeeded(String name) {
-        return new Check(name, true, "not needed with captions only", "");
+        return new Check(name, true, "not needed for this run", "");
     }
 
     /** Fails with exit code 3 on the first dependency that is not usable. */
-    public void requireAll() {
-        for (Check check : checkAll()) {
+    public void require(Needs needs) {
+        for (Check check : checkAll(needs)) {
             if (!check.ok()) {
                 throw new DependencyException(check.name() + ": " + check.detail() + "\n  " + check.hint());
             }

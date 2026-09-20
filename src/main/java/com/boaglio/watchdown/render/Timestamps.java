@@ -38,6 +38,16 @@ public final class Timestamps {
         return "[" + format(seconds, videoDuration) + "](" + url(videoId, seconds) + ")";
     }
 
+    /**
+     * A link when the material is online, plain {@code [03:12]} when it is a local file and there
+     * is no moment on the web to point at.
+     */
+    public static String mark(String videoId, String webpageUrl, double seconds, double videoDuration) {
+        return webpageUrl == null
+                ? "[" + format(seconds, videoDuration) + "]"
+                : link(videoId, seconds, videoDuration);
+    }
+
     public static String url(String videoId, double seconds) {
         return YouTubeUrl.watchUrl(videoId) + "&t=" + Math.max(0, Math.round(seconds)) + "s";
     }

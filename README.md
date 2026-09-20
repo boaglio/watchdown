@@ -5,6 +5,9 @@ Turn a YouTube video into a folder of Markdown that a coding agent can read.
 ```
 watchdown https://youtu.be/dQw4w9WgXcQ
   → yt-dlp (audio + metadata) → whisper (transcript) → Ollama (summary) → Markdown
+
+watchdown --file talk.m4a
+  → whisper (transcript) → Ollama (summary) → Markdown
 ```
 
 Everything runs **locally**: no cloud APIs and no API keys. The transcript keeps its timestamps,
@@ -52,9 +55,9 @@ java -jar target/watchdown.jar --help
 ## Usage
 
 ```
-Usage: watchdown [OPTIONS] <url>...
+Usage: watchdown [OPTIONS] [<url>...]
 
-  <url>...                 One or more YouTube video URLs
+  <url>...                 Zero or more YouTube video URLs
                            (youtube.com/watch?v=, youtu.be/, youtube.com/shorts/)
 
   -o, --output <dir>       Output root directory          (config: outputDir)
@@ -63,6 +66,8 @@ Usage: watchdown [OPTIONS] <url>...
   -w, --whisper-model <n>  Whisper model (tiny…large)     (config: whisper.model)
   -l, --language <code>    Spoken language, e.g. en, pt; 'auto' to detect
                                                           (config: whisper.language)
+  -F, --file <path>        A local audio or video file instead of a URL;
+                           repeatable, and it can be mixed with URLs
   -s, --summary-language <code>
                            Language of the summary; 'auto' = same as video
                                                           (config: summary.language)
@@ -99,6 +104,18 @@ watchdown https://youtu.be/dQw4w9WgXcQ | xargs -I{} ls {}
 
 With several URLs, one failure does not stop the others, and the exit code is the highest any URL
 produced.
+
+## Local files
+
+Anything already on disk goes through the same pipeline, minus the download:
+
+```bash
+watchdown --file standup.m4a --file interview.mp4
+```
+
+The title comes from the file name and the length from `ffprobe`. There is no video to link to, so
+timestamps are written as plain `[mm:ss]`. **Your file is never moved, copied or deleted** —
+`--keep-audio` only applies to audio watchdown downloaded itself.
 
 ## Captions or Whisper
 
