@@ -1,0 +1,34 @@
+{
+  "outputDir": "./watchdown-out",
+  "cacheDir": "~/.cache/watchdown",
+  "keepAudio": false,
+  "verbose": false,
+
+  "ytDlp": {
+    "path": "yt-dlp",
+    "extraArgs": [],
+    "timeoutMinutes": 15
+  },
+
+  "whisper": {
+    "path": "whisper",
+    "model": "small",
+    "language": "auto",
+    "device": "cpu",
+    "timeoutMinutes": 120
+  },
+
+  "ollama": {
+    "baseUrl": "http://localhost:11434",
+    "model": "gemma3:4b",
+    "temperature": 0.2,
+    "numCtx": 8192,
+    "timeoutSeconds": 300
+  },
+
+  "summary": {
+    "language": "auto",
+    "chunkTokens": 3000,
+    "maxKeyPoints": 10
+  }
+}

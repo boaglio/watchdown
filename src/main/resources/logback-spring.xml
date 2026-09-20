@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Logs go to stderr. stdout is reserved for the output folder paths, one per line, which is what
+  makes watchdown safe to use in a pipeline.
+-->
+<configuration>
+    <appender name="STDERR" class="ch.qos.logback.core.ConsoleAppender">
+        <target>System.err</target>
+        <encoder>
+            <pattern>%msg%n</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <root level="WARN">
+        <appender-ref ref="STDERR"/>
+    </root>
+
+    <logger name="org.springframework" level="WARN"/>
+    <logger name="com.boaglio.watchdown" level="WARN"/>
+</configuration>

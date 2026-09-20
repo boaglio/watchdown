@@ -1,0 +1,16 @@
+spring:
+  main:
+    web-application-type: none
+    banner-mode: off
+  application:
+    name: watchdown
+  autoconfigure:
+    # The resolved WatchdownConfig is the single source of truth for Ollama, so the chat model is
+    # built after the CLI is parsed instead of from spring.ai.ollama.* properties.
+    exclude:
+      - org.springframework.ai.model.ollama.autoconfigure.OllamaApiAutoConfiguration
+      - org.springframework.ai.model.ollama.autoconfigure.OllamaChatAutoConfiguration
+      - org.springframework.ai.model.ollama.autoconfigure.OllamaEmbeddingAutoConfiguration
+
+# Logging levels and the stderr console appender live in logback-spring.xml, because stdout is
+# reserved for the output folder paths.
