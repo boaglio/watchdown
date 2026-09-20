@@ -5,6 +5,7 @@ import com.boaglio.watchdown.config.CaptionMode;
 import com.boaglio.watchdown.config.CliOptions;
 import com.boaglio.watchdown.config.ConfigLoader;
 import com.boaglio.watchdown.config.ConfigResolver;
+import com.boaglio.watchdown.config.EnvOptions;
 import com.boaglio.watchdown.config.WatchdownConfig;
 import com.boaglio.watchdown.download.LocalMedia;
 import com.boaglio.watchdown.download.YouTubeUrl;
@@ -58,7 +59,7 @@ public class WatchdownCommand implements Callable<Integer> {
     private List<Path> files = new ArrayList<>();
 
     @Option(names = {"-o", "--output"}, paramLabel = "<dir>",
-            description = "Output root directory (config: outputDir).")
+            description = "Output root directory (env: WATCHDOWN_ROOT, config: outputDir).")
     private Path outputDir;
 
     @Option(names = {"-c", "--config"}, paramLabel = "<file>",
@@ -149,6 +150,7 @@ public class WatchdownCommand implements Callable<Integer> {
         ConfigResolver.Resolution resolution = configResolver.resolve(
                 new CliOptions(outputDir, ollamaModel, whisperModel, language, summaryLanguage, verbose,
                         keepAudio, captions),
+                EnvOptions.fromSystem(),
                 fromFile,
                 configLoader.keysPresentIn(file));
         WatchdownConfig config = resolution.config();

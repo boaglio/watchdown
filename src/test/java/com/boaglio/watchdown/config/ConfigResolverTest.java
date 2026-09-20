@@ -42,6 +42,33 @@ class ConfigResolverTest {
     }
 
     @Test
+    void theEnvironmentWinsOverTheFileButLosesToAFlag() {
+        WatchdownConfig fromFile = withOutputDir(Path.of("/from/file"));
+        EnvOptions env = new EnvOptions(Path.of("/from/env"));
+
+        ConfigResolver.Resolution fromEnv = resolver.resolve(
+                CliOptions.none(), env, fromFile, Set.of("outputDir"));
+        ConfigResolver.Resolution fromFlag = resolver.resolve(
+                new CliOptions(Path.of("/from/flag"), null, null, null, null, null, null, null),
+                env, fromFile, Set.of("outputDir"));
+
+        assertThat(fromEnv.config().outputDir()).isEqualTo(Path.of("/from/env"));
+        assertThat(fromEnv.sources()).containsEntry("outputDir", ConfigResolver.Source.ENV);
+        assertThat(fromFlag.config().outputDir()).isEqualTo(Path.of("/from/flag"));
+        assertThat(fromFlag.sources()).containsEntry("outputDir", ConfigResolver.Source.FLAG);
+    }
+
+    @Test
+    void theFileIsStillUsedWhenTheEnvironmentSaysNothing() {
+        ConfigResolver.Resolution resolution = resolver.resolve(
+                CliOptions.none(), EnvOptions.none(), withOutputDir(Path.of("/from/file")),
+                Set.of("outputDir"));
+
+        assertThat(resolution.config().outputDir()).isEqualTo(Path.of("/from/file"));
+        assertThat(resolution.sources()).containsEntry("outputDir", ConfigResolver.Source.FILE);
+    }
+
+    @Test
     void resolvesEveryFlagTheCliOffers() {
         ConfigResolver.Resolution resolution = resolver.resolve(
                 new CliOptions(Path.of("/tmp/out"), "qwen3:4b", "tiny", "pt", "en", true, true,
@@ -70,6 +97,13 @@ class ConfigResolverTest {
         assertThat(resolution.config().whisper().language()).isEqualTo("auto");
         assertThat(resolution.config().whisper().device()).isEqualTo("cpu");
         assertThat(resolution.config().whisper().timeoutMinutes()).isEqualTo(120);
+    }
+
+    private static WatchdownConfig withOutputDir(Path outputDir) {
+        WatchdownConfig defaults = WatchdownConfig.defaults();
+        return new WatchdownConfig(outputDir, defaults.cacheDir(), defaults.keepAudio(),
+                defaults.verbose(), defaults.captions(), defaults.ytDlp(), defaults.whisper(),
+                defaults.ollama(), defaults.summary());
     }
 
     private static WatchdownConfig withOllamaModel(String model) {

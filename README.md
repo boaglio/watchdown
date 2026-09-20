@@ -72,7 +72,8 @@ Usage: watchdown [OPTIONS] [<url>...]
   <url>...                 Zero or more YouTube video URLs
                            (youtube.com/watch?v=, youtu.be/, youtube.com/shorts/)
 
-  -o, --output <dir>       Output root directory          (config: outputDir)
+  -o, --output <dir>       Output root directory
+                           (env: WATCHDOWN_ROOT, config: outputDir)
   -c, --config <file>      Config file to use             (default: see below)
   -m, --model <name>       Ollama model for summaries     (config: ollama.model)
   -w, --whisper-model <n>  Whisper model (tiny…large)     (config: whisper.model)
@@ -157,6 +158,22 @@ watchdown --captions only https://youtu.be/dQw4w9WgXcQ
 The language follows `--language`; with `auto` it follows the video's own language, and `en` also
 matches tracks published as `en-US`.
 
+## Environment
+
+| Variable         | What it does                                                              |
+|------------------|---------------------------------------------------------------------------|
+| `WATCHDOWN_ROOT` | Where output folders are written. `~` and `$HOME` are expanded.            |
+| `WATCHDOWN_JAR`  | Run a different jar (read by `bin/watchdown`).                             |
+| `JAVA_OPTS`      | Extra JVM options, for example `-Xmx2g` (read by `bin/watchdown`).         |
+
+```bash
+export WATCHDOWN_ROOT=~/Documents/watchdown
+watchdown --captions only https://youtu.be/dQw4w9WgXcQ   # writes under ~/Documents/watchdown
+```
+
+`-o` still beats it, and it does not move the cache — that stays at `cacheDir`
+(`~/.cache/watchdown`).
+
 ## Configuration
 
 `watchdown --init-config` writes the defaults to `$XDG_CONFIG_HOME/watchdown/config.json`
@@ -180,7 +197,7 @@ defaults. `~` and `$HOME` are expanded in path values.
 }
 ```
 
-A CLI flag beats the config file, which beats the built-in default. An unknown key is a warning; a
+A CLI flag beats the environment, which beats the config file, which beats the built-in default. An unknown key is a warning; a
 value of the wrong type is an error that names the file and the JSON path.
 
 ## Cache

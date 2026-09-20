@@ -103,7 +103,8 @@ Usage: watchdown [OPTIONS] [<url>...]
   -F, --file <path>        A local audio or video file instead of a URL.
                            Repeatable, and it can be mixed with URLs.
 
-  -o, --output <dir>       Output root directory          (config: outputDir)
+  -o, --output <dir>       Output root directory
+                           (env: WATCHDOWN_ROOT, config: outputDir)
   -c, --config <file>      Config file to use             (default: see §5)
   -m, --model <name>       Ollama model for summaries      (config: ollama.model)
   -w, --whisper-model <n>  Whisper model (tiny…large)      (config: whisper.model)
@@ -126,9 +127,18 @@ Usage: watchdown [OPTIONS] [<url>...]
 
 ### Precedence
 
-**CLI flag > config file > built-in default.** Resolve all three layers
-into one immutable `WatchdownConfig` record **once, right after
-parsing**. No other code reads flags or the file directly.
+**CLI flag > environment > config file > built-in default.** Resolve all
+four layers into one immutable `WatchdownConfig` record **once, right after
+parsing**. No other code reads flags, the environment or the file directly.
+
+A flag is what you meant this time, the environment is how this shell is set
+up, and the file is your standing preference.
+
+### Environment
+
+| Variable         | Sets        | Notes                                     |
+|------------------|-------------|-------------------------------------------|
+| `WATCHDOWN_ROOT` | `outputDir` | Where the output folders go. `~` and `$HOME` are expanded, as in the config file. It does not move the cache, which stays at `cacheDir`. |
 
 ### Progress
 
@@ -469,7 +479,7 @@ bin/watchdown                          # launcher script
 src/main/java/com/boaglio/watchdown/
   WatchdownApplication.java            # @SpringBootApplication, non-web
   cli/          WatchdownCommand (picocli @Command), ExitCode, ConsoleReporter (progress)
-  config/       WatchdownConfig + nested records, ConfigLoader, ConfigResolver
+  config/       WatchdownConfig + nested records, ConfigLoader, ConfigResolver, EnvOptions
   process/      ProcessRunner (interface), DefaultProcessRunner, ProcessResult
   download/     YouTubeUrl, VideoMetadata, YtDlpDownloader, LocalMedia, MediaProbe
   transcribe/   Transcriber, WhisperTranscriber, Transcript, Segment
@@ -530,7 +540,8 @@ src/test/resources/
     parameters, playlist rejection
   - config loading: defaults, partial merge, unknown keys, bad types,
     `~` expansion
-  - precedence between flags, the config file, and defaults
+  - precedence between flags, the environment, the config file, and defaults
+  - `WATCHDOWN_ROOT`: expansion, blank values, and losing to `-o`
   - the chunker: chapter splits, token splits, never splitting a segment
   - caption parsing: `aAppend` repeats, word-level `segs`, events with no
     duration, milliseconds to seconds
