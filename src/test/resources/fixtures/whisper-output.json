@@ -1,0 +1,13 @@
+{
+  "text": " Welcome back. Today we build a transcription pipeline that never leaves your laptop.",
+  "language": "en",
+  "segments": [
+    { "id": 0, "seek": 0, "start": 0.0, "end": 6.5, "text": " Welcome back to the channel." },
+    { "id": 1, "seek": 0, "start": 6.5, "end": 14.2, "text": " Today we build a transcription pipeline that never leaves your laptop." },
+    { "id": 2, "seek": 0, "start": 14.2, "end": 22.0, "text": " The first question is always the same: why bother running this locally?" },
+    { "id": 3, "seek": 2200, "start": 240.5, "end": 249.8, "text": " So here is the pipeline: yt-dlp, whisper, then a local model." },
+    { "id": 4, "seek": 2200, "start": 249.8, "end": 260.0, "text": " Every step writes its output to a cache, so a rerun is cheap." },
+    { "id": 5, "seek": 7000, "start": 740.0, "end": 750.0, "text": " That is the whole tool. Thanks for watching." },
+    { "id": 6, "seek": 7000, "start": 750.0, "end": 752.0, "text": "   " }
+  ]
+}

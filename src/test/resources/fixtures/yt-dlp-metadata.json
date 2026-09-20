@@ -1,0 +1,18 @@
+{
+  "id": "dQw4w9WgXcQ",
+  "title": "Building a Local Transcription Pipeline",
+  "channel": "Boaglio Labs",
+  "uploader": "Boaglio Labs",
+  "upload_date": "20250917",
+  "duration": 754,
+  "description": "How to turn a video into Markdown without any cloud API.",
+  "webpage_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+  "extractor": "youtube",
+  "chapters": [
+    { "start_time": 0.0, "end_time": 240.0, "title": "Why local" },
+    { "start_time": 240.0, "end_time": 754.0, "title": "The pipeline" }
+  ],
+  "formats": [
+    { "format_id": "251", "acodec": "opus" }
+  ]
+}
