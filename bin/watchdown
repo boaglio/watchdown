@@ -1,2 +1,44 @@
-#!/bin/sh
-exec java -jar "$(dirname "$0")/../target/watchdown.jar" "$@"
+#!/usr/bin/env bash
+#
+# Launcher for watchdown. Builds the jar the first time it is needed, then runs it.
+#
+#   bin/watchdown --captions only https://youtu.be/VIDEO_ID
+#
+# Environment:
+#   WATCHDOWN_JAR  run this jar instead of target/watchdown.jar
+#   JAVA_OPTS      extra options for the JVM, for example -Xmx2g
+#
+set -euo pipefail
+
+# Resolve this script's own directory, following symlinks, so the launcher also works when it is
+# linked onto the PATH from somewhere else.
+source_path=${BASH_SOURCE[0]}
+while [ -L "$source_path" ]; do
+    link_dir=$(cd -P "$(dirname "$source_path")" && pwd)
+    source_path=$(readlink "$source_path")
+    [ "${source_path:0:1}" = "/" ] || source_path=$link_dir/$source_path
+done
+project_dir=$(cd -P "$(dirname "$source_path")/.." && pwd)
+
+if ! command -v java > /dev/null 2>&1; then
+    echo "watchdown: java is not on the PATH (Java 25 or newer is required)" >&2
+    exit 3
+fi
+
+jar=${WATCHDOWN_JAR:-$project_dir/target/watchdown.jar}
+if [ ! -f "$jar" ]; then
+    if [ -n "${WATCHDOWN_JAR:-}" ]; then
+        echo "watchdown: WATCHDOWN_JAR points at $jar, which does not exist" >&2
+        exit 2
+    fi
+    # Progress goes to stderr, because stdout is reserved for the output folder paths.
+    echo "watchdown: building $jar" >&2
+    if ! (cd "$project_dir" && ./mvnw -q package -DskipTests) >&2; then
+        echo "watchdown: the build failed, see the output above" >&2
+        exit 1
+    fi
+fi
+
+# JAVA_OPTS is deliberately unquoted: it may carry several options.
+# shellcheck disable=SC2086
+exec java ${JAVA_OPTS:-} -jar "$jar" "$@"

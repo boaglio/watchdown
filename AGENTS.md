@@ -80,8 +80,13 @@ java -jar target/watchdown.jar --help
 java -jar target/watchdown.jar -v https://www.youtube.com/watch?v=VIDEO_ID
 ```
 
-Ship a small `bin/watchdown` shell script that runs
-`exec java -jar "$(dirname "$0")/../target/watchdown.jar" "$@"`.
+Ship a `bin/watchdown` launcher. It resolves its own directory through
+symlinks, so it works when linked onto the PATH; builds
+`target/watchdown.jar` with `./mvnw` the first time it is needed; and then
+`exec`s the jar so arguments and exit codes pass straight through. Build
+progress goes to stderr, because stdout is reserved for the output folder
+paths. `WATCHDOWN_JAR` overrides the jar, and `JAVA_OPTS` is passed to the
+JVM.
 
 Run `./mvnw test` before you finish any change.
 

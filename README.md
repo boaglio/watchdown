@@ -50,7 +50,19 @@ watchdown --check
 java -jar target/watchdown.jar --help
 ```
 
-`bin/watchdown` is a thin launcher; put it on your PATH to type `watchdown` instead.
+Or just use the launcher, which builds the jar the first time you run it:
+
+```bash
+bin/watchdown --help
+```
+
+Link it onto your PATH to type `watchdown` from anywhere:
+
+```bash
+ln -s "$PWD/bin/watchdown" ~/.local/bin/watchdown
+```
+
+It honours `WATCHDOWN_JAR` (run a different jar) and `JAVA_OPTS` (for example `-Xmx2g`).
 
 ## Usage
 
