@@ -28,7 +28,9 @@ public class OllamaSummarizer implements Summarizer {
     private static final Logger log = LoggerFactory.getLogger(OllamaSummarizer.class);
     private static final String STRICTER_REMINDER = """
             Your previous answer could not be parsed. Answer again with the requested JSON object \
-            only: no prose before or after it, no Markdown code fence, and no comments.""";
+            only: no prose before or after it, no Markdown code fence, and no comments. Every \
+            timestamp must be a plain whole number of seconds, so the moment 02:05 is written as \
+            125, not as 02:05 and not as "2:05".""";
 
     private final ChatClient chatClient;
     private final Resource chunkPrompt;
@@ -101,18 +103,20 @@ public class OllamaSummarizer implements Summarizer {
             return ask(prompt);
         } catch (RuntimeException first) {
             log.debug("the model's answer could not be parsed ({}), retrying once with a stricter reminder",
-                    first.getMessage());
+                    summarize(first));
             try {
-                return ask(prompt + "\n\n" + STRICTER_REMINDER);
+                // Telling the model what was wrong with the last answer beats a generic scolding.
+                return ask(prompt + "\n\n" + STRICTER_REMINDER
+                        + "\n\nThe error from the last answer was: " + summarize(first));
             } catch (RuntimeException second) {
                 throw new SummarizationException(
-                        "the model did not return a usable summary after one retry: " + second.getMessage(), second);
+                        "the model did not return a usable summary after one retry: " + summarize(second), second);
             }
         }
     }
 
     private Summary ask(String prompt) {
-        Summary summary = chatClient.prompt().user(prompt).call().entity(Summary.class);
+        Summary summary = chatClient.prompt().user(prompt).call().entity(SummaryConverter.create());
         if (summary == null || summary.tldr() == null || summary.tldr().isBlank()) {
             throw new IllegalStateException("the answer has no TL;DR");
         }
@@ -168,6 +172,16 @@ public class OllamaSummarizer implements Summarizer {
                     .append(segment.text()).append('\n');
         }
         return text.toString().strip();
+    }
+
+    /** The first line of a parser error, which is the part that says what to fix. */
+    private static String summarize(Throwable error) {
+        String message = error.getMessage();
+        if (message == null || message.isBlank()) {
+            return error.getClass().getSimpleName();
+        }
+        int newline = message.indexOf('\n');
+        return (newline < 0 ? message : message.substring(0, newline)).strip();
     }
 
     private static String render(Resource template, Map<String, Object> variables) {

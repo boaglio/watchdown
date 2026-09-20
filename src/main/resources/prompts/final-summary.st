@@ -7,7 +7,9 @@ Duration: {duration}
 Rules you must follow:
 - Use only the material below. Add no outside facts, names, numbers, or opinions.
 - Every timestamp must come from the material and must be inside the video duration.
-- Timestamps are written as seconds from the start of the video, as a number.
+- A timestamp is a plain whole number: how many seconds from the start of the video.
+  The material marks moments as [mm:ss]; convert them. The moment [02:05] is 125.
+  The moment [00:14] is 14. Write 125, never 02:05, never "2:05", never 0125.
 - Write every piece of text in {language}.
 
 Produce:

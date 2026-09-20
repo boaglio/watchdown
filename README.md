@@ -209,3 +209,10 @@ anything.
 
 The summaries come from a local LLM and may contain mistakes. `transcript.md` is the source of
 truth — check anything important against it.
+
+Small models are careless with JSON, so watchdown reads their answers leniently: prose around the
+object, Markdown fences, single quotes, trailing commas and timestamps written as `02:05` instead
+of `125` are all accepted. If an answer still cannot be parsed, watchdown retries once — quoting
+the parser's own error back to the model — and then gives up with exit code 6, having written
+`transcript.md` and an `AGENTS.md` that says the summary is missing. A bigger model
+(`-m gpt-oss`) is the fix if that happens often.

@@ -521,6 +521,8 @@ src/test/resources/
     directory, and rendering without a URL
   - summary JSON parsing, the single retry, and dropping out-of-range
     timestamps
+  - the sloppy JSON a small model really produces: clock timestamps, leading
+    zeros, Markdown fences, prose around the object, single quotes
   - exit-code mapping for each exception type
 - **Golden-file tests** for `MarkdownRenderer`, with `generated_at` fixed
   by an injected `Clock`. To update the golden files, run
