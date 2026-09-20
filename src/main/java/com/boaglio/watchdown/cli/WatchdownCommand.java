@@ -171,19 +171,19 @@ public class WatchdownCommand implements Callable<Integer> {
             throw new UsageException("no URL or --file given. Try 'watchdown --help'.");
         }
 
-        List<YouTubeUrl> parsed = urls.stream().map(YouTubeUrl::parse).toList();
-        List<LocalMedia> media = files.stream().map(LocalMedia::of).toList();
         pipelineFactory.doctor(config)
-                .require(Doctor.Needs.of(!parsed.isEmpty(), !media.isEmpty(), captionsOnly));
+                .require(Doctor.Needs.of(!urls.isEmpty(), !files.isEmpty(), captionsOnly));
 
         Pipeline pipeline = pipelineFactory.create(config, reporter, force);
         int worst = ExitCode.OK;
-        for (YouTubeUrl url : parsed) {
-            worst = ExitCode.worst(worst, runOne(reporter, url.canonicalUrl(), () -> pipeline.run(url)));
+        // A bad URL or a missing file is that job's failure, not the whole run's: the others
+        // still get processed, and the run reports the highest code any job produced.
+        for (String url : urls) {
+            worst = ExitCode.worst(worst, runOne(reporter, url, () -> pipeline.run(YouTubeUrl.parse(url))));
         }
-        for (LocalMedia recording : media) {
+        for (Path media : files) {
             worst = ExitCode.worst(worst,
-                    runOne(reporter, recording.display(), () -> pipeline.run(recording)));
+                    runOne(reporter, media.toString(), () -> pipeline.run(LocalMedia.of(media))));
         }
         return worst;
     }

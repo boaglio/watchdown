@@ -30,16 +30,16 @@ public record YouTubeUrl(String videoId, String canonicalUrl) {
         try {
             uri = new URI(trimmed.contains("://") ? trimmed : "https://" + trimmed);
         } catch (URISyntaxException e) {
-            throw new UsageException("not a valid URL: " + raw);
+            throw new UsageException("not a valid URL");
         }
 
         String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
         if (!scheme.equals("http") && !scheme.equals("https")) {
-            throw new UsageException("not a YouTube URL: " + raw);
+            throw new UsageException("not a YouTube URL");
         }
         String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.ROOT);
         if (!HOSTS.contains(host)) {
-            throw new UsageException("not a YouTube URL: " + raw);
+            throw new UsageException("not a YouTube URL");
         }
 
         Map<String, String> query = parseQuery(uri.getRawQuery());
@@ -60,16 +60,16 @@ public record YouTubeUrl(String videoId, String canonicalUrl) {
 
         if (id == null || id.isBlank()) {
             if (query.containsKey("list") || path.startsWith("/playlist")) {
-                throw new UsageException("playlists are not supported, pass a single video URL: " + raw);
+                throw new UsageException("playlists are not supported, pass a single video URL");
             }
             if (path.startsWith("/@") || path.startsWith("/channel/") || path.startsWith("/c/")
                     || path.startsWith("/user/")) {
-                throw new UsageException("channels are not supported, pass a single video URL: " + raw);
+                throw new UsageException("channels are not supported, pass a single video URL");
             }
-            throw new UsageException("no video id found in URL: " + raw);
+            throw new UsageException("no video id found in the URL");
         }
         if (!VIDEO_ID.matcher(id).matches()) {
-            throw new UsageException("not a valid video id '" + id + "' in URL: " + raw);
+            throw new UsageException("'" + id + "' is not a valid video id");
         }
         return new YouTubeUrl(id, watchUrl(id));
     }

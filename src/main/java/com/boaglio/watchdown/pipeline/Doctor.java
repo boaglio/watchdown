@@ -5,6 +5,8 @@ import com.boaglio.watchdown.process.ProcessRunner;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.ai.ollama.api.OllamaApi;
 
 /**
@@ -13,6 +15,7 @@ import org.springframework.ai.ollama.api.OllamaApi;
  */
 public class Doctor {
 
+    private static final Logger log = LoggerFactory.getLogger(Doctor.class);
     private static final Duration PROBE_TIMEOUT = Duration.ofSeconds(20);
 
     /** One checked dependency, as {@code --check} prints it. */
@@ -85,14 +88,25 @@ public class Doctor {
                     ? List.of()
                     : response.models().stream().map(OllamaApi.Model::model).toList();
         } catch (RuntimeException e) {
+            log.debug("the Ollama check failed", e);
             return new Check("ollama", false,
-                    "unreachable at " + config.ollama().baseUrl(),
+                    "unreachable at " + config.ollama().baseUrl() + " (" + rootCauseOf(e) + ")",
                     "start it with: ollama serve");
         }
         boolean pulled = models.stream().anyMatch(model -> matches(model, wanted));
         return new Check("ollama", pulled,
                 pulled ? "model " + wanted + " is available" : "model " + wanted + " is not pulled",
                 "pull it with: ollama pull " + wanted);
+    }
+
+    /** The innermost message, which is what actually says why the connection failed. */
+    private static String rootCauseOf(Throwable error) {
+        Throwable cause = error;
+        while (cause.getCause() != null && cause.getCause() != cause) {
+            cause = cause.getCause();
+        }
+        String message = cause.getMessage();
+        return message == null || message.isBlank() ? cause.getClass().getSimpleName() : message;
     }
 
     /** Ollama reports {@code gemma3:4b} but users often configure {@code gemma3}. */

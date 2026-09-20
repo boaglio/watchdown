@@ -69,7 +69,7 @@ class YouTubeUrlTest {
     void rejectsAnIdOfTheWrongLength() {
         assertThatThrownBy(() -> YouTubeUrl.parse("https://youtu.be/tooshort"))
                 .isInstanceOf(UsageException.class)
-                .hasMessageContaining("not a valid video id");
+                .hasMessageContaining("is not a valid video id");
     }
 
     @Test
