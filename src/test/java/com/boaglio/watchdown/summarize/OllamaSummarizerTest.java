@@ -1,0 +1,174 @@
+package com.boaglio.watchdown.summarize;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import com.boaglio.watchdown.config.SummaryConfig;
+import com.boaglio.watchdown.download.Chapter;
+import com.boaglio.watchdown.download.VideoMetadata;
+import com.boaglio.watchdown.transcribe.Segment;
+import com.boaglio.watchdown.transcribe.Transcript;
+import java.time.LocalDate;
+import java.util.List;
+import org.junit.jupiter.api.Test;
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.core.io.Resource;
+
+class OllamaSummarizerTest {
+
+    private static final Resource CHUNK_PROMPT = new ClassPathResource("prompts/chunk-summary.st");
+    private static final Resource FINAL_PROMPT = new ClassPathResource("prompts/final-summary.st");
+
+    private static final String GOOD_ANSWER = """
+            {
+              "title": "Local transcription",
+              "tldr": "The video shows how to transcribe locally. It never uses a cloud API.",
+              "keyPoints": [
+                { "text": "Everything runs on your laptop", "timestamp": 14 },
+                { "text": "The cache makes reruns cheap", "timestamp": 250 }
+              ],
+              "sections": [
+                { "title": "Why local", "start": 0, "summary": "The reasons to avoid the cloud." },
+                { "title": "The pipeline", "start": 240, "summary": "yt-dlp, whisper, then a local model." }
+              ]
+            }""";
+
+    @Test
+    void parsesTheModelsJsonIntoASummary() {
+        StubChatModel model = new StubChatModel().answering(GOOD_ANSWER);
+
+        Summary summary = summarizer(model, SummaryConfig.defaults()).summarize(metadata(), transcript());
+
+        assertThat(summary.title()).isEqualTo("Local transcription");
+        assertThat(summary.tldr()).startsWith("The video shows");
+        assertThat(summary.keyPoints()).hasSize(2);
+        assertThat(summary.keyPoints().getFirst().timestamp()).isEqualTo(14);
+        assertThat(summary.sections()).hasSize(2);
+        assertThat(model.callCount()).isEqualTo(1);
+    }
+
+    @Test
+    void skipsTheMapStepWhenEverythingFitsInOneChunk() {
+        StubChatModel model = new StubChatModel().answering(GOOD_ANSWER);
+
+        summarizer(model, SummaryConfig.defaults()).summarize(metadata(), transcript());
+
+        assertThat(model.callCount()).isEqualTo(1);
+        assertThat(model.prompts().getFirst()).contains("Welcome back");
+    }
+
+    @Test
+    void summarizesEachChunkBeforeCombiningThem() {
+        StubChatModel model = new StubChatModel()
+                .answering("First part summary.", "Second part summary.", GOOD_ANSWER);
+        SummaryConfig config = new SummaryConfig("auto", 10, 10);
+
+        Summary summary = summarizer(model, config).summarize(withChapters(), transcript());
+
+        assertThat(model.callCount()).isEqualTo(3);
+        assertThat(model.prompts().getLast())
+                .contains("First part summary.")
+                .contains("Second part summary.");
+        assertThat(summary.sections()).hasSize(2);
+    }
+
+    @Test
+    void retriesOnceWithAStricterReminder() {
+        StubChatModel model = new StubChatModel().answering("Sorry, I cannot do that.", GOOD_ANSWER);
+
+        Summary summary = summarizer(model, SummaryConfig.defaults()).summarize(metadata(), transcript());
+
+        assertThat(summary.title()).isEqualTo("Local transcription");
+        assertThat(model.callCount()).isEqualTo(2);
+        assertThat(model.prompts().getLast()).contains("could not be parsed");
+    }
+
+    @Test
+    void failsAfterTheSecondUnusableAnswer() {
+        StubChatModel model = new StubChatModel().answering("nope", "still nope");
+
+        assertThatThrownBy(() -> summarizer(model, SummaryConfig.defaults())
+                .summarize(metadata(), transcript()))
+                .isInstanceOf(SummarizationException.class)
+                .hasMessageContaining("after one retry");
+        assertThat(model.callCount()).isEqualTo(2);
+    }
+
+    @Test
+    void dropsTimestampsOutsideTheVideo() {
+        StubChatModel model = new StubChatModel().answering("""
+                {
+                  "title": "Local transcription",
+                  "tldr": "A summary.",
+                  "keyPoints": [
+                    { "text": "inside", "timestamp": 100 },
+                    { "text": "after the end", "timestamp": 9999 },
+                    { "text": "before the start", "timestamp": -5 }
+                  ],
+                  "sections": [
+                    { "title": "Real", "start": 0, "summary": "in range" },
+                    { "title": "Invented", "start": 8000, "summary": "out of range" }
+                  ]
+                }""");
+
+        Summary summary = summarizer(model, SummaryConfig.defaults()).summarize(metadata(), transcript());
+
+        assertThat(summary.keyPoints()).extracting(KeyPoint::text).containsExactly("inside");
+        assertThat(summary.sections()).extracting(Section::title).containsExactly("Real");
+    }
+
+    @Test
+    void keepsAtMostTheConfiguredNumberOfKeyPoints() {
+        StubChatModel model = new StubChatModel().answering(GOOD_ANSWER);
+
+        Summary summary = summarizer(model, new SummaryConfig("auto", 3000, 1))
+                .summarize(metadata(), transcript());
+
+        assertThat(summary.keyPoints()).hasSize(1);
+    }
+
+    @Test
+    void tellsThePromptWhichLanguageToWriteIn() {
+        StubChatModel model = new StubChatModel().answering(GOOD_ANSWER);
+
+        summarizer(model, new SummaryConfig("pt", 3000, 10)).summarize(metadata(), transcript());
+
+        assertThat(model.prompts().getFirst()).contains("Write every piece of text in pt");
+    }
+
+    @Test
+    void refusesAnEmptyTranscript() {
+        StubChatModel model = new StubChatModel().answering(GOOD_ANSWER);
+
+        assertThatThrownBy(() -> summarizer(model, SummaryConfig.defaults())
+                .summarize(metadata(), new Transcript("en", List.of())))
+                .isInstanceOf(SummarizationException.class)
+                .hasMessageContaining("empty");
+    }
+
+    private static OllamaSummarizer summarizer(StubChatModel model, SummaryConfig config) {
+        return new OllamaSummarizer(ChatClient.create(model), CHUNK_PROMPT, FINAL_PROMPT, config);
+    }
+
+    private static Transcript transcript() {
+        return new Transcript("en", List.of(
+                new Segment(0, 6.5, "Welcome back to the channel."),
+                new Segment(240.5, 249.8, "So here is the pipeline: yt-dlp, whisper, then a local model."),
+                new Segment(740, 750, "That is the whole tool.")));
+    }
+
+    private static VideoMetadata metadata() {
+        return new VideoMetadata("dQw4w9WgXcQ", "Building a Local Transcription Pipeline", "Boaglio Labs",
+                LocalDate.of(2025, 9, 17), 754, "", List.of(),
+                "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+    }
+
+    private static VideoMetadata withChapters() {
+        VideoMetadata base = metadata();
+        return new VideoMetadata(base.id(), base.title(), base.channel(), base.uploadDate(),
+                base.durationSeconds(), base.description(),
+                List.of(new Chapter("Why local", 0, 240), new Chapter("The pipeline", 240, 754)),
+                base.webpageUrl());
+    }
+}
