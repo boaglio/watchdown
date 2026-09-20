@@ -1,0 +1,226 @@
+package com.boaglio.watchdown.pipeline;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import com.boaglio.watchdown.Fixtures;
+import com.boaglio.watchdown.config.OllamaConfig;
+import com.boaglio.watchdown.config.SummaryConfig;
+import com.boaglio.watchdown.config.WatchdownConfig;
+import com.boaglio.watchdown.config.WhisperConfig;
+import com.boaglio.watchdown.config.YtDlpConfig;
+import com.boaglio.watchdown.cli.ConsoleReporter;
+import com.boaglio.watchdown.download.Downloader;
+import com.boaglio.watchdown.download.VideoMetadata;
+import com.boaglio.watchdown.download.YouTubeUrl;
+import com.boaglio.watchdown.render.MarkdownRenderer;
+import com.boaglio.watchdown.summarize.KeyPoint;
+import com.boaglio.watchdown.summarize.Section;
+import com.boaglio.watchdown.summarize.SummarizationException;
+import com.boaglio.watchdown.summarize.Summarizer;
+import com.boaglio.watchdown.summarize.Summary;
+import com.boaglio.watchdown.transcribe.Segment;
+import com.boaglio.watchdown.transcribe.Transcript;
+import com.boaglio.watchdown.transcribe.Transcriber;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.PrintStream;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.util.List;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+class PipelineTest {
+
+    private static final YouTubeUrl URL = YouTubeUrl.parse("https://youtu.be/dQw4w9WgXcQ");
+    private static final Clock FIXED = Clock.fixed(Instant.parse("2025-09-18T12:00:00Z"), ZoneOffset.UTC);
+
+    @TempDir
+    Path workspace;
+
+    @Test
+    void writesTheWholeFolderAndReportsSuccess() {
+        FakeDownloader downloader = new FakeDownloader();
+        FakeTranscriber transcriber = new FakeTranscriber();
+
+        VideoJob job = pipeline(downloader, transcriber, summarizer(), config(false), false).run(URL);
+
+        assertThat(job.exitCode()).isZero();
+        assertThat(job.outputFolder().resolve("AGENTS.md")).exists();
+        assertThat(job.outputFolder().resolve("summary.md")).exists();
+        assertThat(job.outputFolder().resolve("transcript.md")).exists();
+        assertThat(downloader.metadataCalls).isEqualTo(1);
+        assertThat(transcriber.transcribeCalls).isEqualTo(1);
+    }
+
+    @Test
+    void skipsTheSlowStepsOnARerun() {
+        FakeDownloader downloader = new FakeDownloader();
+        FakeTranscriber transcriber = new FakeTranscriber();
+
+        pipeline(downloader, transcriber, summarizer(), config(false), false).run(URL);
+        pipeline(downloader, transcriber, summarizer(), config(false), false).run(URL);
+
+        assertThat(downloader.metadataCalls).isEqualTo(1);
+        assertThat(downloader.audioCalls).isEqualTo(1);
+        assertThat(transcriber.transcribeCalls).isEqualTo(1);
+        assertThat(transcriber.cachedCalls).isEqualTo(1);
+    }
+
+    @Test
+    void forceRedoesEveryStep() {
+        FakeDownloader downloader = new FakeDownloader();
+        FakeTranscriber transcriber = new FakeTranscriber();
+
+        pipeline(downloader, transcriber, summarizer(), config(false), false).run(URL);
+        pipeline(downloader, transcriber, summarizer(), config(false), true).run(URL);
+
+        assertThat(downloader.metadataCalls).isEqualTo(2);
+        assertThat(downloader.audioCalls).isEqualTo(2);
+        assertThat(transcriber.transcribeCalls).isEqualTo(2);
+    }
+
+    @Test
+    void stillWritesTheTranscriptWhenSummarizationFails() throws IOException {
+        Summarizer failing = (metadata, transcript) -> {
+            throw new SummarizationException("ollama is not running");
+        };
+
+        VideoJob job = pipeline(new FakeDownloader(), new FakeTranscriber(), failing, config(false), false).run(URL);
+
+        assertThat(job.exitCode()).isEqualTo(6);
+        assertThat(job.outputFolder().resolve("transcript.md")).exists();
+        assertThat(job.outputFolder().resolve("summary.md")).doesNotExist();
+        assertThat(Files.readString(job.outputFolder().resolve("AGENTS.md")))
+                .contains("No summary is available")
+                .contains("ollama is not running");
+    }
+
+    @Test
+    void deletesTheAudioAfterASuccessfulTranscription() {
+        VideoJob job = pipeline(new FakeDownloader(), new FakeTranscriber(), summarizer(), config(false), false)
+                .run(URL);
+
+        assertThat(workspace.resolve("cache/dQw4w9WgXcQ/audio.mp3")).doesNotExist();
+        assertThat(job.outputFolder().resolve("audio.mp3")).doesNotExist();
+    }
+
+    @Test
+    void keepsTheAudioInTheOutputFolderWhenAsked() {
+        VideoJob job = pipeline(new FakeDownloader(), new FakeTranscriber(), summarizer(), config(true), false)
+                .run(URL);
+
+        assertThat(job.outputFolder().resolve("audio.mp3")).exists();
+    }
+
+    @Test
+    void printsOneLinePerStepOnStderr() {
+        ByteArrayOutputStream err = new ByteArrayOutputStream();
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        ConsoleReporter reporter = new ConsoleReporter(new PrintStream(out), new PrintStream(err), false);
+
+        pipeline(new FakeDownloader(), new FakeTranscriber(), summarizer(), config(false), false, reporter)
+                .run(URL);
+
+        assertThat(err.toString().lines().toList())
+                .hasSize(4)
+                .satisfies(lines -> {
+                    assertThat(lines.get(0)).startsWith("[1/4] Downloading").contains("(12:34)").endsWith("s");
+                    assertThat(lines.get(1)).startsWith("[2/4] Transcribing").contains("whisper small");
+                    assertThat(lines.get(2)).startsWith("[3/4] Summarizing").contains("1 chunk");
+                    assertThat(lines.get(3)).startsWith("[4/4] Writing").contains("dQw4w9WgXcQ");
+                });
+        assertThat(out.toString()).isEmpty();
+    }
+
+    private Pipeline pipeline(Downloader downloader, Transcriber transcriber, Summarizer summarizer,
+            WatchdownConfig config, boolean force) {
+        return pipeline(downloader, transcriber, summarizer, config, force,
+                new ConsoleReporter(new PrintStream(new ByteArrayOutputStream()),
+                        new PrintStream(new ByteArrayOutputStream()), false));
+    }
+
+    private Pipeline pipeline(Downloader downloader, Transcriber transcriber, Summarizer summarizer,
+            WatchdownConfig config, boolean force, ConsoleReporter reporter) {
+        return new Pipeline(downloader, transcriber, summarizer, new MarkdownRenderer(FIXED),
+                new Cache(config.cacheDir(), force), config, reporter, Fixtures.mapper(), "1.0.0");
+    }
+
+    private WatchdownConfig config(boolean keepAudio) {
+        return new WatchdownConfig(
+                workspace.resolve("out"),
+                workspace.resolve("cache"),
+                keepAudio,
+                false,
+                YtDlpConfig.defaults(),
+                WhisperConfig.defaults(),
+                OllamaConfig.defaults(),
+                SummaryConfig.defaults());
+    }
+
+    private static Summarizer summarizer() {
+        return (metadata, transcript) -> new Summary("A title", "A TL;DR.",
+                List.of(new KeyPoint("A point", 10)),
+                List.of(new Section("A section", 0, "What happens here.")));
+    }
+
+    private static final class FakeDownloader implements Downloader {
+
+        private int metadataCalls;
+        private int audioCalls;
+
+        @Override
+        public VideoMetadata fetchMetadata(YouTubeUrl url) {
+            metadataCalls++;
+            return new VideoMetadata(url.videoId(), "Building a Local Transcription Pipeline", "Boaglio Labs",
+                    LocalDate.of(2025, 9, 17), 754, "", List.of(), url.canonicalUrl());
+        }
+
+        @Override
+        public Path downloadAudio(YouTubeUrl url, Path targetDirectory) {
+            audioCalls++;
+            Path audio = targetDirectory.resolve("audio.mp3");
+            try {
+                Files.createDirectories(targetDirectory);
+                Files.writeString(audio, "audio");
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+            return audio;
+        }
+    }
+
+    private static final class FakeTranscriber implements Transcriber {
+
+        private int transcribeCalls;
+        private int cachedCalls;
+
+        @Override
+        public Transcript transcribe(Path audio, Path workDirectory, String language) {
+            transcribeCalls++;
+            try {
+                Files.writeString(workDirectory.resolve("audio.json"), Fixtures.whisperOutput());
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+            return transcript();
+        }
+
+        @Override
+        public Transcript readCached(Path cachedOutput) {
+            cachedCalls++;
+            return transcript();
+        }
+
+        private static Transcript transcript() {
+            return new Transcript("en", List.of(
+                    new Segment(0, 6.5, "Welcome back to the channel."),
+                    new Segment(740, 750, "That is the whole tool.")));
+        }
+    }
+}
