@@ -86,12 +86,7 @@ public class MarkdownRenderer {
             if (summary.keyPoints().isEmpty()) {
                 out.append("_The model returned no key points._\n\n");
             } else {
-                for (KeyPoint point : summary.keyPoints()) {
-                    out.append("- ").append(Markdown.escape(point.text())).append(" (")
-                            .append(Timestamps.mark(metadata.id(), metadata.webpageUrl(),
-                                    point.timestamp(), duration))
-                            .append(")\n");
-                }
+                appendKeyPoints(out, summary, metadata);
                 out.append('\n');
             }
         } else {
@@ -124,6 +119,12 @@ public class MarkdownRenderer {
         frontMatter(out, request);
         out.append("# ").append(Markdown.escape(summary.title())).append("\n\n");
         out.append(Markdown.escape(summary.tldr())).append("\n\n");
+
+        if (!summary.keyPoints().isEmpty()) {
+            out.append("## Key points\n\n");
+            appendKeyPoints(out, summary, metadata);
+            out.append('\n');
+        }
 
         if (summary.sections().isEmpty()) {
             out.append("_The model returned no sections._\n");
@@ -161,6 +162,16 @@ public class MarkdownRenderer {
                     .append("** ").append(Markdown.escape(segment.text())).append('\n');
         }
         return out.toString().stripTrailing() + "\n";
+    }
+
+    private static void appendKeyPoints(StringBuilder out, Summary summary, VideoMetadata metadata) {
+        double duration = metadata.durationSeconds();
+        for (KeyPoint point : summary.keyPoints()) {
+            out.append("- ").append(Markdown.escape(point.text())).append(" (")
+                    .append(Timestamps.mark(metadata.id(), metadata.webpageUrl(),
+                            point.timestamp(), duration))
+                    .append(")\n");
+        }
     }
 
     private void frontMatter(StringBuilder out, RenderRequest request) {

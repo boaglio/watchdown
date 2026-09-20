@@ -455,8 +455,12 @@ Agent-readable digest of the YouTube video **<title>** by **<channel>**
 Both start with YAML front matter (`title`, `channel`, `url`, `video_id`,
 `duration_seconds`, `published`, `language`, `generated_at`), followed by:
 
-- `summary.md`: `# <title>`, then one `## <section title> ([mm:ss](…))`
-  per section with its summary paragraph.
+- `summary.md`: `# <title>`, the TL;DR paragraph, then `## Key points` with
+  the same bullets as `AGENTS.md` (the heading is left out when there are
+  none), then one `## <section title> ([mm:ss](…))` per section with its
+  summary paragraph. The key points are deliberately in both files:
+  `AGENTS.md` is the digest an agent reads first, and `summary.md` should
+  stand on its own for a person reading it directly.
 - `transcript.md`: `# Transcript — <title>`, then one line per segment:
   `**[mm:ss](…)** text`. If the video has chapters, insert
   `## <chapter title>` headings at the chapter boundaries.
@@ -559,6 +563,8 @@ src/test/resources/
   - the reporter: a plain line per step when the output is piped, a bar and a
     spinner on a terminal, and one clean line left behind either way
   - progress parsing from what yt-dlp and whisper print
+- The key point bullets are built in one place, so the two files cannot
+  drift apart.
 - **Golden-file tests** for `MarkdownRenderer`, with `generated_at` fixed
   by an injected `Clock`. To update the golden files, run
   `./mvnw test -Dwatchdown.updateGolden=true`, then review the diff.

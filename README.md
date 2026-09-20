@@ -23,7 +23,7 @@ One folder per video:
 ```
 watchdown-out/building-a-local-transcription-pipeline-dQw4w9WgXcQ/
   AGENTS.md        # entry point for agents: what this is, TL;DR, key points, file map
-  summary.md       # section-by-section summary with timestamp links
+  summary.md       # TL;DR, key points, then a section-by-section summary, all with timestamps
   transcript.md    # full timestamped transcript
   audio.mp3        # only with --keep-audio
 ```

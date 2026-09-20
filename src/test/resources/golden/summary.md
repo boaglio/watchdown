@@ -13,6 +13,11 @@ generated_at: "2025-09-18T12:00:00Z"
 
 The video walks through a transcription pipeline that runs entirely on your own machine. It combines yt-dlp, whisper and a local model, and caches every step.
 
+## Key points
+
+- Nothing leaves your laptop ([00:14](https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=14s))
+- A cache makes reruns cheap ([04:10](https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=250s))
+
 ## Why local ([00:00](https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=0s))
 
 The reasons to keep the whole pipeline off the cloud.

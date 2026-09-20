@@ -69,6 +69,31 @@ class MarkdownRendererGoldenTest {
     }
 
     @Test
+    void repeatsTheKeyPointsInTheSummaryFile() {
+        String summary = new MarkdownRenderer(FIXED).summary(request(summary()));
+
+        assertThat(summary).contains("""
+                ## Key points
+
+                - Nothing leaves your laptop ([00:14](https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=14s))
+                - A cache makes reruns cheap ([04:10](https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=250s))
+                """);
+        assertThat(summary.indexOf("## Key points")).isLessThan(summary.indexOf("## Why local"));
+    }
+
+    @Test
+    void leavesOutTheKeyPointsHeadingWhenThereAreNone() {
+        Summary withoutPoints = new Summary("A title", "A TL;DR.", List.of(),
+                List.of(new Section("Only section", 0, "Text.")));
+
+        String summary = new MarkdownRenderer(FIXED).summary(new RenderRequest(metadata(), transcript(),
+                withoutPoints, null, "whisper small, lang=auto", "gemma3:4b", "1.0.0"));
+
+        assertThat(summary).doesNotContain("## Key points");
+        assertThat(summary).contains("## Only section");
+    }
+
+    @Test
     void producesTheSameBytesEveryTime() {
         MarkdownRenderer renderer = new MarkdownRenderer(FIXED);
 

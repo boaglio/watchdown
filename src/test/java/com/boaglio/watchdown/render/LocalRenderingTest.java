@@ -37,6 +37,14 @@ class LocalRenderingTest {
     }
 
     @Test
+    void repeatsTheKeyPointsWithPlainTimestampsToo() {
+        assertThat(renderer.summary(request()))
+                .contains("## Key points")
+                .contains("- A point ([00:30])")
+                .doesNotContain("youtube.com");
+    }
+
+    @Test
     void callsItARecordingAndNamesNoChannel() {
         String agents = renderer.agents(request());
 
