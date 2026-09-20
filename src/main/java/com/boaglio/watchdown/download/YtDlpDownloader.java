@@ -24,6 +24,7 @@ public class YtDlpDownloader implements Downloader {
     private static final Logger log = LoggerFactory.getLogger(YtDlpDownloader.class);
     private static final DateTimeFormatter UPLOAD_DATE = DateTimeFormatter.ofPattern("yyyyMMdd");
     private static final String AUDIO_FORMAT = "mp3";
+    private static final String CAPTION_FORMAT = "json3";
 
     private final ProcessRunner runner;
     private final JsonMapper mapper;
@@ -93,7 +94,65 @@ public class YtDlpDownloader implements Downloader {
             }
         }
 
-        return new VideoMetadata(id, title, channel, uploadDate, duration, description, chapters, webpageUrl);
+        return new VideoMetadata(id, title, channel, uploadDate, duration, description, chapters,
+                webpageUrl, text(root, "language", null),
+                languagesOf(root.path("subtitles")),
+                languagesOf(root.path("automatic_captions")));
+    }
+
+    /** The caption languages yt-dlp listed, keeping only the ones it can hand us as json3. */
+    private static List<String> languagesOf(JsonNode tracks) {
+        if (!tracks.isObject()) {
+            return List.of();
+        }
+        List<String> languages = new ArrayList<>();
+        for (String language : tracks.propertyNames()) {
+            JsonNode formats = tracks.path(language);
+            for (JsonNode format : formats) {
+                if (CAPTION_FORMAT.equals(format.path("ext").asString(""))) {
+                    languages.add(language);
+                    break;
+                }
+            }
+        }
+        return List.copyOf(languages);
+    }
+
+    @Override
+    public Path downloadCaptions(YouTubeUrl url, Path targetDirectory, String language, boolean automatic) {
+        try {
+            Files.createDirectories(targetDirectory);
+        } catch (IOException e) {
+            throw new DownloadException("cannot create " + targetDirectory + ": " + e.getMessage(), e);
+        }
+
+        List<String> command = new ArrayList<>(List.of(
+                config.path(),
+                "--no-playlist",
+                "--skip-download",
+                automatic ? "--write-auto-subs" : "--write-subs",
+                "--sub-langs", language,
+                "--sub-format", CAPTION_FORMAT,
+                "-o", targetDirectory.resolve("captions.%(ext)s").toString()));
+        command.addAll(config.extraArgs());
+        command.add(url.canonicalUrl());
+
+        ProcessResult result = run(command);
+        if (!result.successful()) {
+            throw new DownloadException("yt-dlp could not download the captions (exit "
+                    + result.exitCode() + "):\n" + result.tailOfStderr(20));
+        }
+
+        Path captions = captionFile(targetDirectory, language);
+        if (!Files.exists(captions)) {
+            throw new DownloadException("yt-dlp finished but " + captions + " is missing");
+        }
+        return captions;
+    }
+
+    /** Where yt-dlp leaves the caption track for a language, given our output template. */
+    public static Path captionFile(Path directory, String language) {
+        return directory.resolve("captions." + language + "." + CAPTION_FORMAT);
     }
 
     @Override

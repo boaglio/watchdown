@@ -28,6 +28,8 @@ update the code and tests in the same commit.
 - Everything runs **locally**: no cloud APIs and no API keys.
 - Transcripts include timestamps, and every summary point links back to the
   exact moment in the video.
+- The transcript comes from the captions the creator uploaded when the video
+  has them, and from Whisper otherwise (`--captions`, §6.2).
 - Output is plain Markdown that an agent can use without extra tools.
 - Scripting-friendly: logs go to **stderr**, and output folder paths go to **stdout**.
 
@@ -36,7 +38,6 @@ update the code and tests in the same commit.
 - Playlists and channels (reject them with a clear message).
 - Local audio/video files (`--file`) are a candidate for v2.
 - Any GUI, web server, or REST API. The app is **non-web**.
-- Using YouTube's own captions instead of Whisper (candidate for v2).
 - Speaker diarization.
 
 ---
@@ -59,8 +60,8 @@ External tools. They are not bundled, and the app calls them as processes:
 | Tool      | Purpose                              | Check                   |
 |-----------|--------------------------------------|-------------------------|
 | `yt-dlp`  | metadata + audio download            | `yt-dlp --version`      |
-| `ffmpeg`  | audio extraction (used by yt-dlp and whisper) | `ffmpeg -version` |
-| `whisper` | transcription (openai-whisper CLI)   | `whisper --help`        |
+| `ffmpeg`  | audio extraction (used by yt-dlp and whisper); not needed with `--captions only` | `ffmpeg -version` |
+| `whisper` | transcription (openai-whisper CLI); not needed with `--captions only` | `whisper --help` |
 | `ollama`  | local LLM server (HTTP, default `http://localhost:11434`) | `ollama list` |
 
 ---
@@ -103,6 +104,9 @@ Usage: watchdown [OPTIONS] <url>...
   -s, --summary-language <code>
                            Language of the summary; 'auto' = same as video
                                                            (config: summary.language)
+      --captions <mode>    auto: the creator's captions when the video has them,
+                           else whisper; never: always whisper; only: captions
+                           or nothing                       (config: captions)
   -v, --verbose            Detailed progress, commands, timings (config: verbose)
   -f, --force              Ignore cached audio/transcript, redo every step
       --keep-audio         Keep the downloaded audio file in the output folder
@@ -182,6 +186,7 @@ an existing file unless you also pass `--force`.
   "cacheDir": "~/.cache/watchdown",
   "keepAudio": false,
   "verbose": false,
+  "captions": "auto",
 
   "ytDlp": {
     "path": "yt-dlp",
@@ -248,6 +253,28 @@ small interface, so tests can replace it.
 
 ### 6.2 Transcribe (`transcribe/`)
 
+The transcript comes from one of two sources, chosen by `CaptionPolicy` from
+the `captions` mode **before anything is downloaded**, so a video with captions
+never downloads audio:
+
+| Mode    | Uses                                                                  |
+|---------|-----------------------------------------------------------------------|
+| `auto`  | The captions the creator uploaded; Whisper when the video has none      |
+| `never` | Whisper, always                                                        |
+| `only`  | The creator's captions, else YouTube's automatic ones; never Whisper, and fails with exit code 5 when the video has neither |
+
+`auto` never reaches for YouTube's automatic captions: they are ASR output just
+like Whisper's, so falling back to Whisper keeps one known quality bar.
+
+Captions come from
+`yt-dlp --skip-download --write-subs|--write-auto-subs --sub-langs <code> --sub-format json3`
+and are parsed by `CaptionParser`: one segment per event, joining `segs[].utf8`,
+dropping the `aAppend` repeats that automatic captions use for their rolling
+window. The language follows `--language`, or the video's own language when that
+is `auto`; `en` also matches `en-US` and other regional variants.
+
+Whisper:
+
 - Run `whisper <audio> --model <m> --output_format json --output_dir <cache>/<id>`
   and add `--language <code>` unless the language is `auto`, plus `--device <d>`.
 - Parse Whisper's JSON: `language` plus `segments[]` (`start`, `end`, `text`)
@@ -290,7 +317,7 @@ half-written folder that looks complete.
 ### 6.5 Cache
 
 - Everything intermediate goes to `<cacheDir>/<videoId>/`: `metadata.json`,
-  `audio.mp3`, and Whisper's `audio.json`.
+  `audio.mp3`, Whisper's `audio.json`, and `captions.<lang>.json3`.
 - On a rerun, skip any step whose cached output exists. Transcription is
   the slow step, so this cache matters. `--force` ignores the cache.
 - Summaries aren't cached. Changing the model or prompt and rerunning
@@ -355,7 +382,7 @@ Agent-readable digest of the YouTube video **<title>** by **<channel>**
 |---------------|---------------------------|
 | Video ID      | <id>                      |
 | Language      | <detected language>       |
-| Transcribed   | whisper `<model>`         |
+| Transcribed   | `<transcript source>`     |
 | Summarized    | ollama `<model>`          |
 | Generated     | <ISO-8601 timestamp>      |
 | Tool          | watchdown <version>       |
@@ -453,6 +480,9 @@ src/test/resources/
     `~` expansion
   - precedence between flags, the config file, and defaults
   - the chunker: chapter splits, token splits, never splitting a segment
+  - caption parsing: `aAppend` repeats, word-level `segs`, events with no
+    duration, milliseconds to seconds
+  - the caption policy: each mode, the fallback to Whisper, language matching
   - timestamp formatting and link building (`mm:ss` and `h:mm:ss`)
   - slug generation: accents, emoji, length cap
   - summary JSON parsing, the single retry, and dropping out-of-range

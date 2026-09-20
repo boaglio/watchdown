@@ -10,6 +10,9 @@ watchdown https://youtu.be/dQw4w9WgXcQ
 Everything runs **locally**: no cloud APIs and no API keys. The transcript keeps its timestamps,
 and every summary point links back to the exact moment in the video.
 
+When the creator uploaded captions, watchdown uses those and skips the download and Whisper
+entirely, which turns a multi-minute run into a few seconds.
+
 ## What you get
 
 One folder per video:
@@ -28,6 +31,7 @@ watchdown-out/building-a-local-transcription-pipeline-dQw4w9WgXcQ/
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) — `pip install -U yt-dlp`
 - [ffmpeg](https://ffmpeg.org/) — `apt install ffmpeg`, `brew install ffmpeg`
 - [openai-whisper](https://github.com/openai/whisper) — `pip install -U openai-whisper`
+  (not needed if you always run with `--captions only`)
 - [Ollama](https://ollama.com/) with a model pulled — `ollama pull gemma3:4b`
 
 Check everything at once:
@@ -62,6 +66,9 @@ Usage: watchdown [OPTIONS] <url>...
   -s, --summary-language <code>
                            Language of the summary; 'auto' = same as video
                                                           (config: summary.language)
+      --captions <mode>    auto: the creator's captions when the video has them,
+                           else whisper; never: always whisper; only: captions
+                           or nothing                      (config: captions)
   -v, --verbose            Detailed progress, commands, timings (config: verbose)
   -f, --force              Ignore cached audio/transcript, redo every step
       --keep-audio         Keep the downloaded audio file in the output folder
@@ -93,6 +100,25 @@ watchdown https://youtu.be/dQw4w9WgXcQ | xargs -I{} ls {}
 With several URLs, one failure does not stop the others, and the exit code is the highest any URL
 produced.
 
+## Captions or Whisper
+
+| `--captions` | What it uses                                                            |
+|--------------|-------------------------------------------------------------------------|
+| `auto`       | The captions the creator uploaded; Whisper when the video has none (default) |
+| `never`      | Whisper, always                                                         |
+| `only`       | The creator's captions, else YouTube's automatic ones; never Whisper    |
+
+`auto` deliberately ignores YouTube's *automatic* captions: they are speech recognition just like
+Whisper, so watchdown would rather run the model you chose. `--captions only` is the fast path —
+no audio download, no transcription, and neither Whisper nor ffmpeg has to be installed:
+
+```bash
+watchdown --captions only https://youtu.be/dQw4w9WgXcQ
+```
+
+The language follows `--language`; with `auto` it follows the video's own language, and `en` also
+matches tracks published as `en-US`.
+
 ## Configuration
 
 `watchdown --init-config` writes the defaults to `$XDG_CONFIG_HOME/watchdown/config.json`
@@ -105,6 +131,7 @@ defaults. `~` and `$HOME` are expanded in path values.
   "cacheDir": "~/.cache/watchdown",
   "keepAudio": false,
   "verbose": false,
+  "captions": "auto",
 
   "ytDlp":   { "path": "yt-dlp",  "extraArgs": [], "timeoutMinutes": 15 },
   "whisper": { "path": "whisper", "model": "small", "language": "auto",
@@ -120,8 +147,8 @@ value of the wrong type is an error that names the file and the JSON path.
 
 ## Cache
 
-Intermediate files live in `<cacheDir>/<videoId>/`: `metadata.json`, `audio.mp3` and Whisper's
-`audio.json`. A rerun skips any step whose output is already there — transcription is the slow one,
+Intermediate files live in `<cacheDir>/<videoId>/`: `metadata.json`, `audio.mp3`, Whisper's
+`audio.json` and any `captions.<lang>.json3`. A rerun skips any step whose output is already there — transcription is the slow one,
 so this matters. `--force` ignores the cache. Summaries are never cached, so changing the model or
 the prompt and rerunning just works. The audio is deleted after a successful transcription unless
 you pass `--keep-audio`.

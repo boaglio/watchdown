@@ -66,7 +66,7 @@ public class ConfigLoader {
         WatchdownConfig defaults = WatchdownConfig.defaults();
 
         reader.warnUnknownKeys(root, "", Set.of("outputDir", "cacheDir", "keepAudio", "verbose",
-                "ytDlp", "whisper", "ollama", "summary"));
+                "captions", "ytDlp", "whisper", "ollama", "summary"));
 
         JsonNode ytDlp = reader.object(root, "ytDlp");
         reader.warnUnknownKeys(ytDlp, "ytDlp", Set.of("path", "extraArgs", "timeoutMinutes"));
@@ -109,6 +109,7 @@ public class ConfigLoader {
                 reader.path(root, "cacheDir", defaults.cacheDir()),
                 reader.bool(root, "keepAudio", defaults.keepAudio()),
                 reader.bool(root, "verbose", defaults.verbose()),
+                reader.captionMode(root, "captions", defaults.captions()),
                 ytDlpConfig,
                 whisperConfig,
                 ollamaConfig,
@@ -176,6 +177,21 @@ public class ConfigLoader {
                 throw error(jsonPath, "string", node);
             }
             return UserPaths.expand(node.asString());
+        }
+
+        CaptionMode captionMode(JsonNode parent, String jsonPath, CaptionMode fallback) {
+            JsonNode node = valueAt(parent, jsonPath);
+            if (node == null) {
+                return fallback;
+            }
+            if (!node.isString()) {
+                throw error(jsonPath, "string, one of " + CaptionMode.names(), node);
+            }
+            try {
+                return CaptionMode.parse(node.asString());
+            } catch (IllegalArgumentException e) {
+                throw new ConfigException(file + ": " + jsonPath + ": " + e.getMessage());
+            }
         }
 
         boolean bool(JsonNode parent, String jsonPath, boolean fallback) {

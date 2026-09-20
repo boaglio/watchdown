@@ -1,0 +1,124 @@
+{
+  "wireMagic": "pb3",
+  "pens": [
+    {}
+  ],
+  "wsWinStyles": [
+    {}
+  ],
+  "wpWinPositions": [
+    {}
+  ],
+  "events": [
+    {
+      "tStartMs": 0,
+      "dDurationMs": 1119069,
+      "id": 1,
+      "wpWinPosId": 1
+    },
+    {
+      "tStartMs": 0,
+      "dDurationMs": 2510,
+      "wWinId": 1,
+      "segs": [
+        {
+          "utf8": "[Music]"
+        }
+      ]
+    },
+    {
+      "tStartMs": 4390,
+      "wWinId": 1,
+      "aAppend": 1,
+      "segs": [
+        {
+          "utf8": "\n"
+        }
+      ]
+    },
+    {
+      "tStartMs": 4400,
+      "dDurationMs": 4159,
+      "wWinId": 1,
+      "segs": [
+        {
+          "utf8": "Welcome",
+          "acAsrConf": 0
+        },
+        {
+          "utf8": " back",
+          "tOffsetMs": 399,
+          "acAsrConf": 0
+        },
+        {
+          "utf8": " to",
+          "tOffsetMs": 560,
+          "acAsrConf": 0
+        },
+        {
+          "utf8": " the",
+          "tOffsetMs": 700,
+          "acAsrConf": 0
+        },
+        {
+          "utf8": " channel.",
+          "tOffsetMs": 800,
+          "acAsrConf": 0
+        }
+      ]
+    },
+    {
+      "tStartMs": 6869,
+      "dDurationMs": 1690,
+      "wWinId": 1,
+      "aAppend": 1,
+      "segs": [
+        {
+          "utf8": "\n"
+        }
+      ]
+    },
+    {
+      "tStartMs": 8559,
+      "dDurationMs": 5641,
+      "wWinId": 1,
+      "segs": [
+        {
+          "utf8": "Today we build a transcription pipeline"
+        },
+        {
+          "utf8": " that never leaves your laptop."
+        }
+      ]
+    },
+    {
+      "tStartMs": 240500,
+      "wWinId": 1,
+      "segs": [
+        {
+          "utf8": "So here is the pipeline: yt-dlp, whisper, then a local model."
+        }
+      ]
+    },
+    {
+      "tStartMs": 249800,
+      "dDurationMs": 10200,
+      "wWinId": 1,
+      "segs": [
+        {
+          "utf8": "   "
+        }
+      ]
+    },
+    {
+      "tStartMs": 740000,
+      "dDurationMs": 10000,
+      "wWinId": 1,
+      "segs": [
+        {
+          "utf8": "That is the whole tool. Thanks for watching."
+        }
+      ]
+    }
+  ]
+}

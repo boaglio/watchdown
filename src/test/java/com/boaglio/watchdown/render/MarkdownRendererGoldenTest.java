@@ -87,15 +87,16 @@ class MarkdownRendererGoldenTest {
         assertThat(agents)
                 .contains("No summary is available")
                 .contains("the model was not reachable")
-                .contains("| Summarized    | failed");
+                .containsPattern("\\| Summarized +\\| failed");
     }
 
     @Test
     void escapesMarkdownThatCameFromTheVideo() {
         VideoMetadata metadata = new VideoMetadata("dQw4w9WgXcQ", "Why *stars* and _underscores_ break",
-                "Labs [sic]", null, 60, "", List.of(), "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+                "Labs [sic]", null, 60, "", List.of(), "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                "en", List.of(), List.of());
         RenderRequest request = new RenderRequest(metadata, transcript(), summary(), null,
-                "small", "gemma3:4b", "1.0.0");
+                "whisper small, lang=auto", "gemma3:4b", "1.0.0");
 
         String agents = new MarkdownRenderer(FIXED).agents(request);
 
@@ -125,7 +126,7 @@ class MarkdownRendererGoldenTest {
     private static RenderRequest request(Summary summary) {
         return new RenderRequest(metadata(), transcript(), summary,
                 summary == null ? "the model was not reachable at http://localhost:11434" : null,
-                "small", "gemma3:4b", "1.0.0");
+                "whisper small, lang=auto", "gemma3:4b", "1.0.0");
     }
 
     private static VideoMetadata metadata() {

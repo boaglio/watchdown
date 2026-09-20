@@ -24,6 +24,10 @@ public final class Fixtures {
         return read("/fixtures/whisper-output.json");
     }
 
+    public static String youtubeCaptions() {
+        return read("/fixtures/youtube-captions.json3");
+    }
+
     public static String read(String resource) {
         try (InputStream stream = Fixtures.class.getResourceAsStream(resource)) {
             if (stream == null) {

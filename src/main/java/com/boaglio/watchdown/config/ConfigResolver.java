@@ -49,6 +49,9 @@ public class ConfigResolver {
         boolean keepAudio = cli.keepAudio() != null ? cli.keepAudio() : fromFile.keepAudio();
         sources.put("keepAudio", source(cli.keepAudio() != null, fileKeys.contains("keepAudio")));
 
+        CaptionMode captions = cli.captions() != null ? cli.captions() : fromFile.captions();
+        sources.put("captions", source(cli.captions() != null, fileKeys.contains("captions")));
+
         WhisperConfig whisper = fromFile.whisper();
         if (cli.whisperModel() != null || cli.whisperLanguage() != null) {
             whisper = new WhisperConfig(
@@ -80,6 +83,7 @@ public class ConfigResolver {
                 fromFile.cacheDir(),
                 keepAudio,
                 verbose,
+                captions,
                 fromFile.ytDlp(),
                 whisper,
                 ollama,

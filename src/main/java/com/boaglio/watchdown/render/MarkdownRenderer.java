@@ -94,16 +94,16 @@ public class MarkdownRenderer {
         }
 
         out.append("## Provenance\n\n");
-        out.append("| Field         | Value                     |\n");
-        out.append("|---------------|---------------------------|\n");
-        row(out, "Video ID", metadata.id());
-        row(out, "Language", request.transcript().language());
-        row(out, "Transcribed", "whisper `" + request.whisperModel() + "`");
-        row(out, "Summarized", request.hasSummary()
-                ? "ollama `" + request.ollamaModel() + "`"
-                : "failed");
-        row(out, "Generated", generatedAt());
-        row(out, "Tool", "watchdown " + request.toolVersion());
+        out.append(table(List.of(
+                List.of("Field", "Value"),
+                List.of("Video ID", metadata.id()),
+                List.of("Language", request.transcript().language()),
+                List.of("Transcribed", "`" + request.transcriptSource() + "`"),
+                List.of("Summarized", request.hasSummary()
+                        ? "ollama `" + request.ollamaModel() + "`"
+                        : "failed"),
+                List.of("Generated", generatedAt()),
+                List.of("Tool", "watchdown " + request.toolVersion()))));
         return out.toString();
     }
 
@@ -172,8 +172,33 @@ public class MarkdownRenderer {
         return Instant.now(clock).truncatedTo(ChronoUnit.SECONDS).toString();
     }
 
-    private static void row(StringBuilder out, String field, String value) {
-        out.append("| ").append(pad(field, 13)).append(" | ").append(pad(value, 25)).append(" |\n");
+    /** A Markdown table whose columns are as wide as their widest cell, header row first. */
+    private static String table(List<List<String>> rows) {
+        int columns = rows.getFirst().size();
+        int[] widths = new int[columns];
+        for (List<String> row : rows) {
+            for (int column = 0; column < columns; column++) {
+                widths[column] = Math.max(widths[column], row.get(column).length());
+            }
+        }
+
+        StringBuilder out = new StringBuilder();
+        appendRow(out, rows.getFirst(), widths);
+        out.append('|');
+        for (int width : widths) {
+            out.append("-".repeat(width + 2)).append('|');
+        }
+        out.append('\n');
+        rows.stream().skip(1).forEach(row -> appendRow(out, row, widths));
+        return out.toString();
+    }
+
+    private static void appendRow(StringBuilder out, List<String> row, int[] widths) {
+        out.append('|');
+        for (int column = 0; column < row.size(); column++) {
+            out.append(' ').append(pad(row.get(column), widths[column])).append(" |");
+        }
+        out.append('\n');
     }
 
     private static String pad(String value, int width) {

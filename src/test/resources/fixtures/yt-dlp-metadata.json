@@ -9,10 +9,102 @@
   "webpage_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
   "extractor": "youtube",
   "chapters": [
-    { "start_time": 0.0, "end_time": 240.0, "title": "Why local" },
-    { "start_time": 240.0, "end_time": 754.0, "title": "The pipeline" }
+    {
+      "start_time": 0.0,
+      "end_time": 240.0,
+      "title": "Why local"
+    },
+    {
+      "start_time": 240.0,
+      "end_time": 754.0,
+      "title": "The pipeline"
+    }
   ],
   "formats": [
-    { "format_id": "251", "acodec": "opus" }
-  ]
+    {
+      "format_id": "251",
+      "acodec": "opus"
+    }
+  ],
+  "language": "en",
+  "subtitles": {
+    "en": [
+      {
+        "ext": "json3",
+        "url": "https://example.invalid/sub.json3"
+      },
+      {
+        "ext": "vtt",
+        "url": "https://example.invalid/sub.vtt"
+      },
+      {
+        "ext": "srt",
+        "url": "https://example.invalid/sub.srt"
+      }
+    ],
+    "pt": [
+      {
+        "ext": "json3",
+        "url": "https://example.invalid/sub.json3"
+      },
+      {
+        "ext": "vtt",
+        "url": "https://example.invalid/sub.vtt"
+      },
+      {
+        "ext": "srt",
+        "url": "https://example.invalid/sub.srt"
+      }
+    ],
+    "fr": [
+      {
+        "ext": "vtt",
+        "url": "https://example.invalid/sub.vtt"
+      }
+    ]
+  },
+  "automatic_captions": {
+    "en": [
+      {
+        "ext": "json3",
+        "url": "https://example.invalid/sub.json3"
+      },
+      {
+        "ext": "vtt",
+        "url": "https://example.invalid/sub.vtt"
+      },
+      {
+        "ext": "srt",
+        "url": "https://example.invalid/sub.srt"
+      }
+    ],
+    "es": [
+      {
+        "ext": "json3",
+        "url": "https://example.invalid/sub.json3"
+      },
+      {
+        "ext": "vtt",
+        "url": "https://example.invalid/sub.vtt"
+      },
+      {
+        "ext": "srt",
+        "url": "https://example.invalid/sub.srt"
+      }
+    ],
+    "de": [
+      {
+        "ext": "json3",
+        "url": "https://example.invalid/sub.json3"
+      },
+      {
+        "ext": "vtt",
+        "url": "https://example.invalid/sub.vtt"
+      },
+      {
+        "ext": "srt",
+        "url": "https://example.invalid/sub.srt"
+      }
+    ]
+  }
 }

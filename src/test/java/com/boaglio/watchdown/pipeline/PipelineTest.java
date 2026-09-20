@@ -3,6 +3,7 @@ package com.boaglio.watchdown.pipeline;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.boaglio.watchdown.Fixtures;
+import com.boaglio.watchdown.config.CaptionMode;
 import com.boaglio.watchdown.config.OllamaConfig;
 import com.boaglio.watchdown.config.SummaryConfig;
 import com.boaglio.watchdown.config.WatchdownConfig;
@@ -18,6 +19,7 @@ import com.boaglio.watchdown.summarize.Section;
 import com.boaglio.watchdown.summarize.SummarizationException;
 import com.boaglio.watchdown.summarize.Summarizer;
 import com.boaglio.watchdown.summarize.Summary;
+import com.boaglio.watchdown.transcribe.CaptionParser;
 import com.boaglio.watchdown.transcribe.Segment;
 import com.boaglio.watchdown.transcribe.Transcript;
 import com.boaglio.watchdown.transcribe.Transcriber;
@@ -119,6 +121,52 @@ class PipelineTest {
     }
 
     @Test
+    void usesTheCaptionsInsteadOfDownloadingAudio() {
+        FakeDownloader downloader = new FakeDownloader(List.of("en"));
+        FakeTranscriber transcriber = new FakeTranscriber();
+
+        VideoJob job = pipeline(downloader, transcriber, summarizer(), config(false, CaptionMode.AUTO), false)
+                .run(URL);
+
+        assertThat(job.exitCode()).isZero();
+        assertThat(downloader.captionCalls).isEqualTo(1);
+        assertThat(downloader.audioCalls).isZero();
+        assertThat(transcriber.transcribeCalls).isZero();
+        assertThat(job.outputFolder().resolve("transcript.md")).exists();
+    }
+
+    @Test
+    void recordsTheCaptionSourceInTheProvenance() throws IOException {
+        VideoJob job = pipeline(new FakeDownloader(List.of("en")), new FakeTranscriber(), summarizer(),
+                config(false, CaptionMode.AUTO), false).run(URL);
+
+        assertThat(Files.readString(job.outputFolder().resolve("AGENTS.md")))
+                .containsPattern("\\| Transcribed +\\| `captions en`");
+    }
+
+    @Test
+    void reusesACachedCaptionTrack() {
+        FakeDownloader downloader = new FakeDownloader(List.of("en"));
+
+        pipeline(downloader, new FakeTranscriber(), summarizer(), config(false, CaptionMode.AUTO), false).run(URL);
+        pipeline(downloader, new FakeTranscriber(), summarizer(), config(false, CaptionMode.AUTO), false).run(URL);
+
+        assertThat(downloader.captionCalls).isEqualTo(1);
+    }
+
+    @Test
+    void fallsBackToWhisperWhenTheVideoHasNoCaptions() {
+        FakeDownloader downloader = new FakeDownloader(List.of());
+        FakeTranscriber transcriber = new FakeTranscriber();
+
+        pipeline(downloader, transcriber, summarizer(), config(false, CaptionMode.AUTO), false).run(URL);
+
+        assertThat(downloader.captionCalls).isZero();
+        assertThat(downloader.audioCalls).isEqualTo(1);
+        assertThat(transcriber.transcribeCalls).isEqualTo(1);
+    }
+
+    @Test
     void printsOneLinePerStepOnStderr() {
         ByteArrayOutputStream err = new ByteArrayOutputStream();
         ByteArrayOutputStream out = new ByteArrayOutputStream();
@@ -147,16 +195,22 @@ class PipelineTest {
 
     private Pipeline pipeline(Downloader downloader, Transcriber transcriber, Summarizer summarizer,
             WatchdownConfig config, boolean force, ConsoleReporter reporter) {
-        return new Pipeline(downloader, transcriber, summarizer, new MarkdownRenderer(FIXED),
-                new Cache(config.cacheDir(), force), config, reporter, Fixtures.mapper(), "1.0.0");
+        return new Pipeline(downloader, transcriber, new CaptionParser(Fixtures.mapper()), summarizer,
+                new MarkdownRenderer(FIXED), new Cache(config.cacheDir(), force), config, reporter,
+                Fixtures.mapper(), "1.0.0");
     }
 
     private WatchdownConfig config(boolean keepAudio) {
+        return config(keepAudio, CaptionMode.NEVER);
+    }
+
+    private WatchdownConfig config(boolean keepAudio, CaptionMode captions) {
         return new WatchdownConfig(
                 workspace.resolve("out"),
                 workspace.resolve("cache"),
                 keepAudio,
                 false,
+                captions,
                 YtDlpConfig.defaults(),
                 WhisperConfig.defaults(),
                 OllamaConfig.defaults(),
@@ -171,14 +225,39 @@ class PipelineTest {
 
     private static final class FakeDownloader implements Downloader {
 
+        private final List<String> captionLanguages;
+
         private int metadataCalls;
         private int audioCalls;
+        private int captionCalls;
+
+        private FakeDownloader() {
+            this(List.of());
+        }
+
+        private FakeDownloader(List<String> captionLanguages) {
+            this.captionLanguages = captionLanguages;
+        }
 
         @Override
         public VideoMetadata fetchMetadata(YouTubeUrl url) {
             metadataCalls++;
             return new VideoMetadata(url.videoId(), "Building a Local Transcription Pipeline", "Boaglio Labs",
-                    LocalDate.of(2025, 9, 17), 754, "", List.of(), url.canonicalUrl());
+                    LocalDate.of(2025, 9, 17), 754, "", List.of(), url.canonicalUrl(), "en",
+                    captionLanguages, List.of());
+        }
+
+        @Override
+        public Path downloadCaptions(YouTubeUrl url, Path targetDirectory, String language, boolean automatic) {
+            captionCalls++;
+            Path captions = targetDirectory.resolve("captions." + language + ".json3");
+            try {
+                Files.createDirectories(targetDirectory);
+                Files.writeString(captions, Fixtures.youtubeCaptions());
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+            return captions;
         }
 
         @Override

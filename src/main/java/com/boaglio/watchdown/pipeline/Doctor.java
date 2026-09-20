@@ -29,17 +29,31 @@ public class Doctor {
         this.config = config;
     }
 
-    /** Runs every check and returns the results, without throwing. */
+    /**
+     * Runs every check and returns the results, without throwing.
+     *
+     * <p>{@code --captions only} never runs Whisper and never downloads audio, so neither Whisper
+     * nor ffmpeg has to be installed for it to work.
+     */
     public List<Check> checkAll() {
+        boolean needsAudio = config.captions().allowsWhisper();
         List<Check> checks = new ArrayList<>();
         checks.add(tool("yt-dlp", List.of(config.ytDlp().path(), "--version"),
                 "install it with: pip install -U yt-dlp"));
-        checks.add(tool("ffmpeg", List.of("ffmpeg", "-version"),
-                "install it with your package manager, for example: apt install ffmpeg"));
-        checks.add(tool("whisper", List.of(config.whisper().path(), "--help"),
-                "install it with: pip install -U openai-whisper"));
+        checks.add(needsAudio
+                ? tool("ffmpeg", List.of("ffmpeg", "-version"),
+                        "install it with your package manager, for example: apt install ffmpeg")
+                : notNeeded("ffmpeg"));
+        checks.add(needsAudio
+                ? tool("whisper", List.of(config.whisper().path(), "--help"),
+                        "install it with: pip install -U openai-whisper")
+                : notNeeded("whisper"));
         checks.add(ollama());
         return List.copyOf(checks);
+    }
+
+    private static Check notNeeded(String name) {
+        return new Check(name, true, "not needed with captions only", "");
     }
 
     /** Fails with exit code 3 on the first dependency that is not usable. */

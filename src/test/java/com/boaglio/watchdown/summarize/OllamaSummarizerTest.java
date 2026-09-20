@@ -161,7 +161,7 @@ class OllamaSummarizerTest {
     private static VideoMetadata metadata() {
         return new VideoMetadata("dQw4w9WgXcQ", "Building a Local Transcription Pipeline", "Boaglio Labs",
                 LocalDate.of(2025, 9, 17), 754, "", List.of(),
-                "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+                "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "en", List.of(), List.of());
     }
 
     private static VideoMetadata withChapters() {
@@ -169,6 +169,7 @@ class OllamaSummarizerTest {
         return new VideoMetadata(base.id(), base.title(), base.channel(), base.uploadDate(),
                 base.durationSeconds(), base.description(),
                 List.of(new Chapter("Why local", 0, 240), new Chapter("The pipeline", 240, 754)),
-                base.webpageUrl());
+                base.webpageUrl(), base.language(), base.captionLanguages(),
+                base.automaticCaptionLanguages());
     }
 }

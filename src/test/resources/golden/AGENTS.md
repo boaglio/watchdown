@@ -22,11 +22,11 @@ The video walks through a transcription pipeline that runs entirely on your own 
 
 ## Provenance
 
-| Field         | Value                     |
-|---------------|---------------------------|
-| Video ID      | dQw4w9WgXcQ               |
-| Language      | en                        |
-| Transcribed   | whisper `small`           |
-| Summarized    | ollama `gemma3:4b`        |
-| Generated     | 2025-09-18T12:00:00Z      |
-| Tool          | watchdown 1.0.0           |
+| Field       | Value                      |
+|-------------|----------------------------|
+| Video ID    | dQw4w9WgXcQ                |
+| Language    | en                         |
+| Transcribed | `whisper small, lang=auto` |
+| Summarized  | ollama `gemma3:4b`         |
+| Generated   | 2025-09-18T12:00:00Z       |
+| Tool        | watchdown 1.0.0            |

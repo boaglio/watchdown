@@ -3,6 +3,7 @@
   "cacheDir": "~/.cache/watchdown",
   "keepAudio": false,
   "verbose": false,
+  "captions": "auto",
 
   "ytDlp": {
     "path": "yt-dlp",

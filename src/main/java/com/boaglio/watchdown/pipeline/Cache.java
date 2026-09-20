@@ -1,5 +1,6 @@
 package com.boaglio.watchdown.pipeline;
 
+import com.boaglio.watchdown.download.YtDlpDownloader;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -42,6 +43,11 @@ public class Cache {
 
     public Path transcriptFile(String videoId) {
         return directoryFor(videoId).resolve("audio.json");
+    }
+
+    /** Where yt-dlp leaves a caption track, which is cached exactly like the audio. */
+    public Path captionFile(String videoId, String language) {
+        return YtDlpDownloader.captionFile(directoryFor(videoId), language);
     }
 
     /** True when the file can be reused, which is never the case under {@code --force}. */

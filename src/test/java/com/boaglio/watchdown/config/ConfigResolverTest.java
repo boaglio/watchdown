@@ -15,7 +15,7 @@ class ConfigResolverTest {
         WatchdownConfig fromFile = withOllamaModel("llama3.2");
 
         ConfigResolver.Resolution resolution = resolver.resolve(
-                new CliOptions(null, "qwen3:4b", null, null, null, null, null),
+                new CliOptions(null, "qwen3:4b", null, null, null, null, null, null),
                 fromFile,
                 Set.of("ollama.model"));
 
@@ -44,7 +44,8 @@ class ConfigResolverTest {
     @Test
     void resolvesEveryFlagTheCliOffers() {
         ConfigResolver.Resolution resolution = resolver.resolve(
-                new CliOptions(Path.of("/tmp/out"), "qwen3:4b", "tiny", "pt", "en", true, true),
+                new CliOptions(Path.of("/tmp/out"), "qwen3:4b", "tiny", "pt", "en", true, true,
+                        CaptionMode.NEVER),
                 WatchdownConfig.defaults(),
                 Set.of());
 
@@ -56,12 +57,13 @@ class ConfigResolverTest {
         assertThat(config.summary().language()).isEqualTo("en");
         assertThat(config.verbose()).isTrue();
         assertThat(config.keepAudio()).isTrue();
+        assertThat(config.captions()).isEqualTo(CaptionMode.NEVER);
     }
 
     @Test
     void leavesUntouchedPartsOfASectionAlone() {
         ConfigResolver.Resolution resolution = resolver.resolve(
-                new CliOptions(null, null, "tiny", null, null, null, null),
+                new CliOptions(null, null, "tiny", null, null, null, null, null),
                 WatchdownConfig.defaults(),
                 Set.of());
 
@@ -74,7 +76,7 @@ class ConfigResolverTest {
         WatchdownConfig defaults = WatchdownConfig.defaults();
         OllamaConfig ollama = defaults.ollama();
         return new WatchdownConfig(defaults.outputDir(), defaults.cacheDir(), defaults.keepAudio(),
-                defaults.verbose(), defaults.ytDlp(), defaults.whisper(),
+                defaults.verbose(), defaults.captions(), defaults.ytDlp(), defaults.whisper(),
                 new OllamaConfig(ollama.baseUrl(), model, ollama.temperature(), ollama.numCtx(),
                         ollama.timeoutSeconds()),
                 defaults.summary());

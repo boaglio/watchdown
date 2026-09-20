@@ -13,6 +13,7 @@ import com.boaglio.watchdown.render.Timestamps;
 import com.boaglio.watchdown.summarize.Chunker;
 import com.boaglio.watchdown.summarize.Summarizer;
 import com.boaglio.watchdown.summarize.Summary;
+import com.boaglio.watchdown.transcribe.CaptionParser;
 import com.boaglio.watchdown.transcribe.Transcript;
 import com.boaglio.watchdown.transcribe.Transcriber;
 import java.io.IOException;
@@ -27,6 +28,9 @@ import tools.jackson.databind.json.JsonMapper;
 /**
  * The four steps of AGENTS.md section 6, run for one URL at a time.
  *
+ * <p>The transcript comes either from YouTube's captions or from Whisper; {@link CaptionPolicy}
+ * decides which before anything is downloaded, so a video with captions never downloads audio.
+ *
  * <p>When summarization fails the transcript is still written, along with an AGENTS.md that says
  * the summary is missing and why; the job then reports exit code 6.
  */
@@ -37,6 +41,7 @@ public class Pipeline {
 
     private final Downloader downloader;
     private final Transcriber transcriber;
+    private final CaptionParser captionParser;
     private final Summarizer summarizer;
     private final MarkdownRenderer renderer;
     private final Cache cache;
@@ -45,11 +50,12 @@ public class Pipeline {
     private final JsonMapper mapper;
     private final String version;
 
-    public Pipeline(Downloader downloader, Transcriber transcriber, Summarizer summarizer,
-            MarkdownRenderer renderer, Cache cache, WatchdownConfig config, ConsoleReporter reporter,
-            JsonMapper mapper, String version) {
+    public Pipeline(Downloader downloader, Transcriber transcriber, CaptionParser captionParser,
+            Summarizer summarizer, MarkdownRenderer renderer, Cache cache, WatchdownConfig config,
+            ConsoleReporter reporter, JsonMapper mapper, String version) {
         this.downloader = downloader;
         this.transcriber = transcriber;
+        this.captionParser = captionParser;
         this.summarizer = summarizer;
         this.renderer = renderer;
         this.cache = cache;
@@ -62,10 +68,15 @@ public class Pipeline {
     public VideoJob run(YouTubeUrl url) {
         reporter.stepStart(1, STEPS, "Downloading");
         VideoMetadata metadata = metadata(url);
-        Path audio = audioIfNeeded(url);
+
+        TranscriptSource source = new CaptionPolicy(config.captions(), config.whisper().model())
+                .choose(metadata, config.whisper().language());
+        log.debug("transcript source: {}", source.display());
+
+        Path material = materialFor(url, source);
         reporter.stepDone();
 
-        Transcript transcript = transcribe(url, audio);
+        Transcript transcript = transcribe(url, source, material);
         Summary summary = null;
         String failure = null;
 
@@ -81,7 +92,7 @@ public class Pipeline {
             log.debug("summarization failed", e);
         }
 
-        Path folder = write(metadata, transcript, summary, failure);
+        Path folder = write(metadata, transcript, source, summary, failure);
         return summary == null
                 ? VideoJob.failed(url, folder, ExitCode.SUMMARIZATION_FAILED, failure)
                 : VideoJob.succeeded(url, folder);
@@ -104,9 +115,24 @@ public class Pipeline {
     }
 
     /**
-     * Downloads the audio only when it is actually needed: a cached transcript makes it pointless,
-     * unless the user asked to keep the audio file.
+     * Fetches whatever the chosen source needs: a caption track, or the audio. Nothing is fetched
+     * when the transcript is already cached, unless the user asked to keep the audio.
      */
+    private Path materialFor(YouTubeUrl url, TranscriptSource source) {
+        return source.fromCaptions() ? captionsIfNeeded(url, source) : audioIfNeeded(url);
+    }
+
+    private Path captionsIfNeeded(YouTubeUrl url, TranscriptSource source) {
+        Path captions = cache.captionFile(url.videoId(), source.language());
+        if (cache.isHit(captions)) {
+            log.debug("cache hit: {}", captions);
+            return captions;
+        }
+        log.debug("cache miss: {}", captions);
+        return downloader.downloadCaptions(url, cache.directoryFor(url.videoId()),
+                source.language(), source.automatic());
+    }
+
     private Path audioIfNeeded(YouTubeUrl url) {
         Path audio = cache.audioFile(url.videoId());
         if (cache.isHit(audio)) {
@@ -121,30 +147,41 @@ public class Pipeline {
         return downloader.downloadAudio(url, cache.directoryFor(url.videoId()));
     }
 
-    private Transcript transcribe(YouTubeUrl url, Path audio) {
+    private Transcript transcribe(YouTubeUrl url, TranscriptSource source, Path material) {
+        if (source.fromCaptions()) {
+            reporter.stepStart(2, STEPS, "Transcribing", source.display());
+            Transcript transcript = captionParser.read(material, source.language());
+            reporter.stepDone();
+            return logged(transcript);
+        }
+
         Path transcriptFile = cache.transcriptFile(url.videoId());
         if (cache.isHit(transcriptFile)) {
             log.debug("cache hit: {}", transcriptFile);
             reporter.stepStart(2, STEPS, "Transcribing", "cached transcript");
             Transcript cached = transcriber.readCached(transcriptFile);
             reporter.stepDone();
-            return cached;
+            return logged(cached);
         }
 
         log.debug("cache miss: {}", transcriptFile);
-        reporter.stepStart(2, STEPS, "Transcribing", "whisper %s, lang=%s"
-                .formatted(config.whisper().model(), config.whisper().language()));
-        Transcript transcript = transcriber.transcribe(audio, cache.directoryFor(url.videoId()),
+        reporter.stepStart(2, STEPS, "Transcribing", source.display());
+        Transcript transcript = transcriber.transcribe(material, cache.directoryFor(url.videoId()),
                 config.whisper().language());
         reporter.stepDone();
+        return logged(transcript);
+    }
+
+    private static Transcript logged(Transcript transcript) {
         log.debug("transcript: {} segments, {} words, language={}",
                 transcript.segments().size(), transcript.wordCount(), transcript.language());
         return transcript;
     }
 
-    private Path write(VideoMetadata metadata, Transcript transcript, Summary summary, String failure) {
+    private Path write(VideoMetadata metadata, Transcript transcript, TranscriptSource source,
+            Summary summary, String failure) {
         RenderRequest request = new RenderRequest(metadata, transcript, summary, failure,
-                config.whisper().model(), config.ollama().model(), version);
+                source.display(), config.ollama().model(), version);
         Path folder = renderer.render(request, config.outputDir());
         handleAudio(metadata.id(), folder);
         reporter.finalStep(4, STEPS, "Writing", folder);

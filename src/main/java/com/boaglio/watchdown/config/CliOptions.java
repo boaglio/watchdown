@@ -14,9 +14,10 @@ public record CliOptions(
         String whisperLanguage,
         String summaryLanguage,
         Boolean verbose,
-        Boolean keepAudio) {
+        Boolean keepAudio,
+        CaptionMode captions) {
 
     public static CliOptions none() {
-        return new CliOptions(null, null, null, null, null, null, null);
+        return new CliOptions(null, null, null, null, null, null, null, null);
     }
 }

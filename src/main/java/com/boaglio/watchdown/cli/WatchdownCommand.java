@@ -1,6 +1,7 @@
 package com.boaglio.watchdown.cli;
 
 import com.boaglio.watchdown.WatchdownException;
+import com.boaglio.watchdown.config.CaptionMode;
 import com.boaglio.watchdown.config.CliOptions;
 import com.boaglio.watchdown.config.ConfigLoader;
 import com.boaglio.watchdown.config.ConfigResolver;
@@ -73,6 +74,12 @@ public class WatchdownCommand implements Callable<Integer> {
             description = "Language of the summary; 'auto' = same as video (config: summary.language).")
     private String summaryLanguage;
 
+    @Option(names = "--captions", paramLabel = "<mode>",
+            description = "Use YouTube's own captions: auto (default, the creator's captions when "
+                    + "the video has them), never (always whisper), only (captions or nothing) "
+                    + "(config: captions).")
+    private CaptionMode captions;
+
     @Option(names = {"-v", "--verbose"},
             description = "Detailed progress, commands, timings (config: verbose).")
     private Boolean verbose;
@@ -133,7 +140,8 @@ public class WatchdownCommand implements Callable<Integer> {
         }
         WatchdownConfig fromFile = configLoader.load(file);
         ConfigResolver.Resolution resolution = configResolver.resolve(
-                new CliOptions(outputDir, ollamaModel, whisperModel, language, summaryLanguage, verbose, keepAudio),
+                new CliOptions(outputDir, ollamaModel, whisperModel, language, summaryLanguage, verbose,
+                        keepAudio, captions),
                 fromFile,
                 configLoader.keysPresentIn(file));
         WatchdownConfig config = resolution.config();
@@ -216,6 +224,7 @@ public class WatchdownCommand implements Callable<Integer> {
         log.debug("{}", resolution.describe("outputDir", config.outputDir()));
         log.debug("{}", resolution.describe("cacheDir", config.cacheDir()));
         log.debug("{}", resolution.describe("keepAudio", config.keepAudio()));
+        log.debug("{}", resolution.describe("captions", config.captions()));
         log.debug("{}", resolution.describe("verbose", config.verbose()));
         log.debug("{}", resolution.describe("whisper.model", config.whisper().model()));
         log.debug("{}", resolution.describe("whisper.language", config.whisper().language()));

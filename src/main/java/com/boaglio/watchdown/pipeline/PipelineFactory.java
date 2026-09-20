@@ -8,6 +8,7 @@ import com.boaglio.watchdown.download.YtDlpDownloader;
 import com.boaglio.watchdown.process.ProcessRunner;
 import com.boaglio.watchdown.render.MarkdownRenderer;
 import com.boaglio.watchdown.summarize.OllamaSummarizer;
+import com.boaglio.watchdown.transcribe.CaptionParser;
 import com.boaglio.watchdown.transcribe.WhisperTranscriber;
 import java.time.Clock;
 import java.time.Duration;
@@ -53,6 +54,7 @@ public class PipelineFactory {
         return new Pipeline(
                 new YtDlpDownloader(runner, mapper, config.ytDlp()),
                 new WhisperTranscriber(runner, mapper, config.whisper()),
+                new CaptionParser(mapper),
                 new OllamaSummarizer(chatClient(config), chunkPrompt, finalPrompt, config.summary()),
                 new MarkdownRenderer(clock),
                 new Cache(config.cacheDir(), force),
