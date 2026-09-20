@@ -119,6 +119,58 @@ class OllamaSummarizerTest {
     }
 
     @Test
+    void dropsEntriesWhoseMomentTheModelNeverGave() {
+        StubChatModel model = new StubChatModel().answering("""
+                {
+                  "title": "Local transcription",
+                  "tldr": "A summary.",
+                  "keyPoints": [{ "text": "real", "timestamp": 100 },
+                                { "text": "no moment", "timestamp": null }],
+                  "sections": [{ "title": "Real", "start": 0, "summary": "in range" },
+                               { "title": "No moment", "summary": "the model forgot the start" }]
+                }""");
+
+        Summary summary = summarizer(model, SummaryConfig.defaults()).summarize(metadata(), transcript());
+
+        assertThat(summary.keyPoints()).extracting(KeyPoint::text).containsExactly("real");
+        assertThat(summary.sections()).extracting(Section::title).containsExactly("Real");
+    }
+
+    @Test
+    void stillSucceedsWhenEverySectionLostItsMoment() {
+        // Losing the sections beats losing the whole summary and exiting 6.
+        StubChatModel model = new StubChatModel().answering("""
+                {
+                  "title": "Local transcription",
+                  "tldr": "A summary that survived.",
+                  "keyPoints": [{ "text": "real", "timestamp": 100 }],
+                  "sections": [{ "title": "No moment", "summary": "s" }]
+                }""");
+
+        Summary summary = summarizer(model, SummaryConfig.defaults()).summarize(metadata(), transcript());
+
+        assertThat(summary.tldr()).isEqualTo("A summary that survived.");
+        assertThat(summary.keyPoints()).hasSize(1);
+        assertThat(summary.sections()).isEmpty();
+    }
+
+    @Test
+    void dropsEntriesWithNoTextAtAll() {
+        StubChatModel model = new StubChatModel().answering("""
+                {
+                  "title": "T", "tldr": "D",
+                  "keyPoints": [{ "text": "  ", "timestamp": 10 },
+                                { "text": "real", "timestamp": 20 }],
+                  "sections": [{ "title": "", "start": 0, "summary": "  " }]
+                }""");
+
+        Summary summary = summarizer(model, SummaryConfig.defaults()).summarize(metadata(), transcript());
+
+        assertThat(summary.keyPoints()).extracting(KeyPoint::text).containsExactly("real");
+        assertThat(summary.sections()).isEmpty();
+    }
+
+    @Test
     void keepsAtMostTheConfiguredNumberOfKeyPoints() {
         StubChatModel model = new StubChatModel().answering(GOOD_ANSWER);
 

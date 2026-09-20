@@ -542,7 +542,8 @@ src/test/resources/
   - summary JSON parsing, the single retry, and dropping out-of-range
     timestamps
   - the sloppy JSON a small model really produces: clock timestamps, leading
-    zeros, Markdown fences, prose around the object, single quotes
+    zeros, Markdown fences, prose around the object, single quotes, and a
+    moment that is null, absent or not even a scalar
   - exit-code mapping for each exception type
   - the reporter: a plain line per step when the output is piped, a bar and a
     spinner on a terminal, and one clean line left behind either way

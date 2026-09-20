@@ -86,11 +86,44 @@ class SloppyModelJsonTest {
             "'1:02:05', 3725",
             "'[02:05]', 125",
             "'00:00', 0",
-            "'2:05.500', 125",
-            "'not a time', 0",
-            "'', 0"})
+            "'2:05.500', 125"})
     void parsesEveryShapeOfSecondsItHasBeenGiven(String written, double expected) {
         assertThat(Seconds.parse(written)).isEqualTo(expected);
+    }
+
+    @Test
+    void treatsAnUnreadableMomentAsNoMomentAtAll() {
+        assertThat(Seconds.parse("not a time")).isNaN();
+        assertThat(Seconds.parse("")).isNaN();
+        assertThat(Seconds.parse(null)).isNaN();
+    }
+
+    @Test
+    void survivesASectionWithNoStartAtAll() {
+        // The second real failure from gemma3:4b: a null start cannot go into a primitive double,
+        // so Jackson blew up before the summary ever reached the renderer.
+        Summary summary = convert("""
+                {
+                  "title": "T", "tldr": "D",
+                  "keyPoints": [{ "text": "a", "timestamp": null }],
+                  "sections": [{ "title": "Sem tempo", "start": null, "summary": "s" },
+                               { "title": "Sem campo", "summary": "s" },
+                               { "title": "Boa", "start": 30, "summary": "s" }]
+                }""");
+
+        assertThat(summary.keyPoints().getFirst().timestamp()).isNaN();
+        assertThat(summary.sections()).extracting(Section::start).containsExactly(Double.NaN, Double.NaN, 30.0);
+    }
+
+    @Test
+    void survivesAMomentSentAsSomethingThatIsNotAScalar() {
+        Summary summary = convert("""
+                { "title": "T", "tldr": "D",
+                  "keyPoints": [{ "text": "a", "timestamp": {} },
+                                { "text": "b", "timestamp": true }],
+                  "sections": [] }""");
+
+        assertThat(summary.keyPoints()).extracting(KeyPoint::timestamp).containsOnly(Double.NaN);
     }
 
     @Test

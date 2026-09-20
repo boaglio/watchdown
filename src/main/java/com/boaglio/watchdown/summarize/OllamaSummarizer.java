@@ -137,10 +137,12 @@ public class OllamaSummarizer implements Summarizer {
     private Summary validate(Summary summary, VideoMetadata metadata) {
         double duration = metadata.durationSeconds();
         List<KeyPoint> keyPoints = summary.keyPoints().stream()
+                .filter(point -> hasText(point.text()))
                 .filter(point -> inRange(point.timestamp(), duration))
                 .limit(config.maxKeyPoints())
                 .toList();
         List<Section> sections = summary.sections().stream()
+                .filter(section -> hasText(section.title()) || hasText(section.summary()))
                 .filter(section -> inRange(section.start(), duration))
                 .sorted((left, right) -> Double.compare(left.start(), right.start()))
                 .toList();
@@ -148,16 +150,21 @@ public class OllamaSummarizer implements Summarizer {
         int droppedPoints = summary.keyPoints().size() - keyPoints.size();
         int droppedSections = summary.sections().size() - sections.size();
         if (droppedPoints > 0 || droppedSections > 0) {
-            log.debug("dropped {} key point(s) and {} section(s) with timestamps outside the video",
-                    droppedPoints, droppedSections);
+            log.debug("dropped {} key point(s) and {} section(s): no text, or a moment that is "
+                    + "missing or outside the video", droppedPoints, droppedSections);
         }
 
         String title = summary.title() == null || summary.title().isBlank() ? metadata.title() : summary.title();
         return new Summary(title, summary.tldr().strip(), keyPoints, sections);
     }
 
+    /** NaN fails this, which is how a moment the model never gave us gets dropped. */
     private static boolean inRange(double seconds, double duration) {
         return seconds >= 0 && (duration <= 0 || seconds <= duration);
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     private String joinChunkSummaries(List<Chunk> chunks, List<String> summaries, int duration) {
