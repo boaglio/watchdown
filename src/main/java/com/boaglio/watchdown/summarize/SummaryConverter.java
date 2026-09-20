@@ -84,6 +84,11 @@ public final class SummaryConverter {
         return new BeanOutputConverter<>(Summary.class, lenientMapper(), cleaner());
     }
 
+    /** The same leniency for the sections-only retry (AGENTS.md section 6.3). */
+    public static BeanOutputConverter<Sections> sections() {
+        return new BeanOutputConverter<>(Sections.class, lenientMapper(), cleaner());
+    }
+
     static JsonMapper lenientMapper() {
         return JsonMapper.builder()
                 .enable(JsonReadFeature.ALLOW_LEADING_ZEROS_FOR_NUMBERS)

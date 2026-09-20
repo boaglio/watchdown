@@ -256,7 +256,8 @@ an existing file unless you also pass `--force`.
   "summary": {
     "language": "auto",
     "chunkTokens": 3000,
-    "maxKeyPoints": 10
+    "maxKeyPoints": 10,
+    "sectionAttempts": 5
   }
 }
 ```
@@ -342,6 +343,25 @@ Whisper:
 - Ask for **JSON** output and map it into a `Summary` record with Spring AI
   structured output (`.entity(Summary.class)`). If parsing fails, retry
   **once** with a stricter reminder, then fail with exit code 6.
+- **Chase the sections.** A small model will often answer with a title, a
+  TL;DR and key points and no sections at all, which leaves `summary.md`
+  with nothing to read. When the reduce step produces no usable section —
+  after validation, so a section whose moment was dropped counts as
+  missing — ask again, up to `summary.sectionAttempts` attempts in total
+  (the first ask included). Each attempt asks a *smaller* question than
+  the last, because repeating an identical prompt to a near-deterministic
+  model mostly returns the same answer:
+  - attempt 2: the same final prompt with the omission named.
+  - attempt 3 and after: `prompts/sections-retry.st` — the sections on
+    their own, as `{ "sections": [...] }`, which is a far easier thing to
+    generate than the whole summary object. The number asked for starts at
+    three and comes down by one each attempt, never below one.
+  Only the sections are taken from these answers: the title, TL;DR and key
+  points stay as the first good answer wrote them, so a later attempt can
+  add and never subtract. A failure inside the chase — a model error, an
+  unparseable answer — is just another failed attempt, never fatal. If
+  every attempt comes back empty the summary is still returned without
+  sections: no sections beats no summary.
 - Keep prompts in `src/main/resources/prompts/*.st`. Don't build prompts
   inline in Java.
 - Summary language: `auto` means the language Whisper detected. Otherwise

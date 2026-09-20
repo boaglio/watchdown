@@ -38,17 +38,20 @@ public class PipelineFactory {
     private final Clock clock;
     private final Resource chunkPrompt;
     private final Resource finalPrompt;
+    private final Resource sectionsPrompt;
 
     public PipelineFactory(ProcessRunner runner,
             tools.jackson.databind.json.JsonMapper mapper,
             Clock clock,
             @Value("classpath:prompts/chunk-summary.st") Resource chunkPrompt,
-            @Value("classpath:prompts/final-summary.st") Resource finalPrompt) {
+            @Value("classpath:prompts/final-summary.st") Resource finalPrompt,
+            @Value("classpath:prompts/sections-retry.st") Resource sectionsPrompt) {
         this.runner = runner;
         this.mapper = mapper;
         this.clock = clock;
         this.chunkPrompt = chunkPrompt;
         this.finalPrompt = finalPrompt;
+        this.sectionsPrompt = sectionsPrompt;
     }
 
     public Pipeline create(WatchdownConfig config, ConsoleReporter reporter, boolean force) {
@@ -57,7 +60,7 @@ public class PipelineFactory {
                 new WhisperTranscriber(runner, mapper, config.whisper()),
                 new CaptionParser(mapper),
                 new MediaProbe(runner),
-                new OllamaSummarizer(chatClient(config), chunkPrompt, finalPrompt, config.summary()),
+                new OllamaSummarizer(chatClient(config), chunkPrompt, finalPrompt, sectionsPrompt, config.summary()),
                 new MarkdownRenderer(clock),
                 new Cache(config.cacheDir(), force),
                 config,

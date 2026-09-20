@@ -30,6 +30,7 @@
   "summary": {
     "language": "auto",
     "chunkTokens": 3000,
-    "maxKeyPoints": 10
+    "maxKeyPoints": 10,
+    "sectionAttempts": 5
   }
 }

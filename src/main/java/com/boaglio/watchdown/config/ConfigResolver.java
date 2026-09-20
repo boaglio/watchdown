@@ -82,7 +82,8 @@ public class ConfigResolver {
 
         SummaryConfig summary = fromFile.summary();
         if (cli.summaryLanguage() != null) {
-            summary = new SummaryConfig(cli.summaryLanguage(), summary.chunkTokens(), summary.maxKeyPoints());
+            summary = new SummaryConfig(cli.summaryLanguage(), summary.chunkTokens(), summary.maxKeyPoints(),
+                    summary.sectionAttempts());
         }
         sources.put("summary.language", source(cli.summaryLanguage() != null, false,
                 fileKeys.contains("summary.language")));

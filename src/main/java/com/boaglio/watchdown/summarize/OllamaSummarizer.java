@@ -23,6 +23,14 @@ import org.springframework.core.io.Resource;
  * that fits in one chunk skips the map step. The model only ever sees the transcript: the prompts
  * forbid outside facts and timestamps that are not in the text, and anything outside
  * {@code [0, duration]} is dropped afterwards.
+ *
+ * <p>A small model will often answer with a title, a TL;DR and key points and no sections at all,
+ * which leaves a summary with nothing to read. Rather than accept that, the sections are chased:
+ * up to {@code summary.sectionAttempts} tries, each asking a smaller question than the last —
+ * first the whole summary again with the omission named, then the sections on their own, then the
+ * same thing with the number asked for coming down. The TL;DR and key points from the first good
+ * answer are kept throughout, so a later attempt can only add sections, never take anything away.
+ * If every attempt comes back empty the summary is still returned: no sections beats no summary.
  */
 public class OllamaSummarizer implements Summarizer {
 
@@ -32,16 +40,26 @@ public class OllamaSummarizer implements Summarizer {
             only: no prose before or after it, no Markdown code fence, and no comments. Every \
             timestamp must be a plain whole number of seconds, so the moment 02:05 is written as \
             125, not as 02:05 and not as "2:05".""";
+    private static final String SECTIONS_REMINDER = """
+            Your previous answer had no usable "sections" array. Answer again with the same JSON \
+            object, and this time fill in "sections": the video in order, one entry per part, each \
+            with a title, a "start" that is a plain whole number of seconds taken from the \
+            material, and a one-sentence summary. Every video has parts, however short it is.""";
+    /** How many sections attempt 3 asks for; each attempt after it asks for one fewer, down to one. */
+    private static final int FIRST_MINIMUM_SECTIONS = 3;
 
     private final ChatClient chatClient;
     private final Resource chunkPrompt;
     private final Resource finalPrompt;
+    private final Resource sectionsPrompt;
     private final SummaryConfig config;
 
-    public OllamaSummarizer(ChatClient chatClient, Resource chunkPrompt, Resource finalPrompt, SummaryConfig config) {
+    public OllamaSummarizer(ChatClient chatClient, Resource chunkPrompt, Resource finalPrompt,
+            Resource sectionsPrompt, SummaryConfig config) {
         this.chatClient = chatClient;
         this.chunkPrompt = chunkPrompt;
         this.finalPrompt = finalPrompt;
+        this.sectionsPrompt = sectionsPrompt;
         this.config = config;
     }
 
@@ -75,10 +93,10 @@ public class OllamaSummarizer implements Summarizer {
             progress.note("combining");
         }
 
-        Summary summary = reduce(metadata, transcript, chunks, chunkSummaries, language);
+        Summary summary = reduce(metadata, transcript, chunks, chunkSummaries, language, progress);
         progress.fraction(1);
         progress.note("");
-        return validate(summary, metadata);
+        return summary;
     }
 
     private String summarizeChunk(Chunk chunk, VideoMetadata metadata, String language) {
@@ -95,8 +113,9 @@ public class OllamaSummarizer implements Summarizer {
         }
     }
 
+    /** The final answer, validated, with the sections chased if the first attempt came back without. */
     private Summary reduce(VideoMetadata metadata, Transcript transcript, List<Chunk> chunks,
-            List<String> chunkSummaries, String language) {
+            List<String> chunkSummaries, String language, Progress progress) {
         String body = chunkSummaries.isEmpty()
                 ? asTimestampedText(transcript.segments(), metadata.durationSeconds())
                 : joinChunkSummaries(chunks, chunkSummaries, metadata.durationSeconds());
@@ -109,6 +128,15 @@ public class OllamaSummarizer implements Summarizer {
                 "maxKeyPoints", String.valueOf(config.maxKeyPoints()),
                 "material", body));
 
+        Summary summary = validate(askWithParseRetry(prompt), metadata);
+        if (!summary.sections().isEmpty() || config.sectionAttempts() <= 1) {
+            return summary;
+        }
+        return chaseSections(summary, metadata, body, language, prompt, progress);
+    }
+
+    /** The first ask, and the one parse-failure retry of AGENTS.md section 6.3. */
+    private Summary askWithParseRetry(String prompt) {
         try {
             return ask(prompt);
         } catch (RuntimeException first) {
@@ -123,6 +151,69 @@ public class OllamaSummarizer implements Summarizer {
                         "the model did not return a usable summary after one retry: " + summarize(second), second);
             }
         }
+    }
+
+    /**
+     * Asks again for the sections the model left out, each attempt a smaller question than the
+     * last: the whole summary once more with the omission named, then the sections on their own,
+     * then the same with the number asked for coming down to one.
+     *
+     * <p>Only the sections are taken from these answers. The title, TL;DR and key points stay as
+     * the first good answer wrote them, so a later attempt can add and never subtract, and a
+     * failure at any point simply leaves {@code best} as it was.
+     */
+    private Summary chaseSections(Summary best, VideoMetadata metadata, String material, String language,
+            String finalAsk, Progress progress) {
+        int attempts = config.sectionAttempts();
+        for (int attempt = 2; attempt <= attempts; attempt++) {
+            progress.note("sections %d/%d".formatted(attempt, attempts));
+            long startedAt = System.nanoTime();
+            List<Section> sections = attempt == 2
+                    ? sectionsFromWholeSummary(finalAsk, metadata)
+                    : sectionsOnTheirOwn(best, metadata, material, language, minimumSectionsFor(attempt));
+            log.debug("sections attempt {}/{}: {} usable in {}ms", attempt, attempts, sections.size(),
+                    (System.nanoTime() - startedAt) / 1_000_000);
+            if (!sections.isEmpty()) {
+                return new Summary(best.title(), best.tldr(), best.keyPoints(), sections);
+            }
+        }
+        log.debug("no sections after {} attempt(s); keeping the summary without them", attempts);
+        progress.note("");
+        return best;
+    }
+
+    /** Attempt 2: the same question with the omission named. A model often just forgot. */
+    private List<Section> sectionsFromWholeSummary(String finalAsk, VideoMetadata metadata) {
+        try {
+            return usableSections(ask(finalAsk + "\n\n" + SECTIONS_REMINDER).sections(), metadata);
+        } catch (RuntimeException e) {
+            log.debug("asking for the whole summary again failed: {}", summarize(e));
+            return List.of();
+        }
+    }
+
+    /** Attempt 3 and after: sections and nothing else, which is a much smaller thing to generate. */
+    private List<Section> sectionsOnTheirOwn(Summary best, VideoMetadata metadata, String material,
+            String language, int minimum) {
+        String prompt = render(sectionsPrompt, Map.of(
+                "title", metadata.title(),
+                "duration", Timestamps.duration(metadata.durationSeconds()),
+                "tldr", best.tldr(),
+                "minSections", String.valueOf(minimum),
+                "language", language,
+                "material", material));
+        try {
+            Sections answer = chatClient.prompt().user(prompt).call().entity(SummaryConverter.sections());
+            return answer == null ? List.of() : usableSections(answer.sections(), metadata);
+        } catch (RuntimeException e) {
+            log.debug("asking for the sections alone failed: {}", summarize(e));
+            return List.of();
+        }
+    }
+
+    /** Three on the first sections-only attempt, then one fewer each time, never below one. */
+    private static int minimumSectionsFor(int attempt) {
+        return Math.max(1, FIRST_MINIMUM_SECTIONS - (attempt - 3));
     }
 
     private Summary ask(String prompt) {
@@ -141,11 +232,7 @@ public class OllamaSummarizer implements Summarizer {
                 .filter(point -> inRange(point.timestamp(), duration))
                 .limit(config.maxKeyPoints())
                 .toList();
-        List<Section> sections = summary.sections().stream()
-                .filter(section -> hasText(section.title()) || hasText(section.summary()))
-                .filter(section -> inRange(section.start(), duration))
-                .sorted((left, right) -> Double.compare(left.start(), right.start()))
-                .toList();
+        List<Section> sections = usableSections(summary.sections(), metadata);
 
         int droppedPoints = summary.keyPoints().size() - keyPoints.size();
         int droppedSections = summary.sections().size() - sections.size();
@@ -156,6 +243,16 @@ public class OllamaSummarizer implements Summarizer {
 
         String title = summary.title() == null || summary.title().isBlank() ? metadata.title() : summary.title();
         return new Summary(title, summary.tldr().strip(), keyPoints, sections);
+    }
+
+    /** The sections worth keeping: some text, a moment inside the video, and in order. */
+    private static List<Section> usableSections(List<Section> sections, VideoMetadata metadata) {
+        double duration = metadata.durationSeconds();
+        return sections.stream()
+                .filter(section -> hasText(section.title()) || hasText(section.summary()))
+                .filter(section -> inRange(section.start(), duration))
+                .sorted((left, right) -> Double.compare(left.start(), right.start()))
+                .toList();
     }
 
     /** NaN fails this, which is how a moment the model never gave us gets dropped. */

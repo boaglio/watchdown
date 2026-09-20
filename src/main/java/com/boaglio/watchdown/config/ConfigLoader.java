@@ -97,12 +97,14 @@ public class ConfigLoader {
                 reader.integer(ollama, "ollama.timeoutSeconds", ollamaDefaults.timeoutSeconds()));
 
         JsonNode summary = reader.object(root, "summary");
-        reader.warnUnknownKeys(summary, "summary", Set.of("language", "chunkTokens", "maxKeyPoints"));
+        reader.warnUnknownKeys(summary, "summary",
+                Set.of("language", "chunkTokens", "maxKeyPoints", "sectionAttempts"));
         SummaryConfig summaryDefaults = defaults.summary();
         SummaryConfig summaryConfig = new SummaryConfig(
                 reader.string(summary, "summary.language", summaryDefaults.language()),
                 reader.integer(summary, "summary.chunkTokens", summaryDefaults.chunkTokens()),
-                reader.integer(summary, "summary.maxKeyPoints", summaryDefaults.maxKeyPoints()));
+                reader.integer(summary, "summary.maxKeyPoints", summaryDefaults.maxKeyPoints()),
+                reader.integer(summary, "summary.sectionAttempts", summaryDefaults.sectionAttempts()));
 
         return new WatchdownConfig(
                 reader.path(root, "outputDir", defaults.outputDir()),
