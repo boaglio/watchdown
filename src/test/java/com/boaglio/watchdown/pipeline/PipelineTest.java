@@ -92,7 +92,7 @@ class PipelineTest {
 
     @Test
     void stillWritesTheTranscriptWhenSummarizationFails() throws IOException {
-        Summarizer failing = (metadata, transcript) -> {
+        Summarizer failing = (metadata, transcript, progress) -> {
             throw new SummarizationException("ollama is not running");
         };
 
@@ -278,7 +278,7 @@ class PipelineTest {
     }
 
     private static Summarizer summarizer() {
-        return (metadata, transcript) -> new Summary("A title", "A TL;DR.",
+        return (metadata, transcript, progress) -> new Summary("A title", "A TL;DR.",
                 List.of(new KeyPoint("A point", 10)),
                 List.of(new Section("A section", 0, "What happens here.")));
     }
@@ -321,7 +321,8 @@ class PipelineTest {
         }
 
         @Override
-        public Path downloadAudio(YouTubeUrl url, Path targetDirectory) {
+        public Path downloadAudio(YouTubeUrl url, Path targetDirectory,
+                com.boaglio.watchdown.Progress progress) {
             audioCalls++;
             Path audio = targetDirectory.resolve("audio.mp3");
             try {
@@ -340,7 +341,8 @@ class PipelineTest {
         private int cachedCalls;
 
         @Override
-        public Transcript transcribe(Path audio, Path workDirectory, String language) {
+        public Transcript transcribe(Path audio, Path workDirectory, String language,
+                int durationSeconds, com.boaglio.watchdown.Progress progress) {
             transcribeCalls++;
             try {
                 Files.writeString(workDirectory.resolve("audio.json"), Fixtures.whisperOutput());

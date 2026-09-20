@@ -130,6 +130,26 @@ Usage: watchdown [OPTIONS] [<url>...]
 into one immutable `WatchdownConfig` record **once, right after
 parsing**. No other code reads flags or the file directly.
 
+### Progress
+
+On a terminal the current step's line is redrawn in place with the elapsed
+time, a spinner, and a bar once the step knows how far along it is:
+
+```
+[2/4] Transcribing  whisper small, lang=pt  ███████░░░░░░░  37%  2:41
+[3/4] Summarizing   gemma3:4b, 12 chunks    ██████░░░░░░░░  31%  4/12  0:52
+```
+
+Steps report through the `Progress` interface: the summarizer counts chunks,
+and the download and transcription steps read the percentage yt-dlp prints
+and the timestamps whisper prints as it goes. When the fraction is unknown
+the spinner and the clock still move, so a long step never looks frozen.
+
+When stderr is **not** a terminal, and in verbose mode where the debug log
+needs the screen, nothing is redrawn: the output stays one plain line per
+step, with no escape codes, so pipes and log files are unchanged. Each
+finished step leaves exactly one line in the scrollback either way.
+
 ### Verbose mode (`-v`)
 
 Default (quiet) output is one line per step on stderr:
@@ -448,7 +468,7 @@ pom.xml
 bin/watchdown                          # launcher script
 src/main/java/com/boaglio/watchdown/
   WatchdownApplication.java            # @SpringBootApplication, non-web
-  cli/          WatchdownCommand (picocli @Command), ExitCode, ConsoleReporter
+  cli/          WatchdownCommand (picocli @Command), ExitCode, ConsoleReporter (progress)
   config/       WatchdownConfig + nested records, ConfigLoader, ConfigResolver
   process/      ProcessRunner (interface), DefaultProcessRunner, ProcessResult
   download/     YouTubeUrl, VideoMetadata, YtDlpDownloader, LocalMedia, MediaProbe
@@ -524,6 +544,9 @@ src/test/resources/
   - the sloppy JSON a small model really produces: clock timestamps, leading
     zeros, Markdown fences, prose around the object, single quotes
   - exit-code mapping for each exception type
+  - the reporter: a plain line per step when the output is piped, a bar and a
+    spinner on a terminal, and one clean line left behind either way
+  - progress parsing from what yt-dlp and whisper print
 - **Golden-file tests** for `MarkdownRenderer`, with `generated_at` fixed
   by an injected `Clock`. To update the golden files, run
   `./mvnw test -Dwatchdown.updateGolden=true`, then review the diff.

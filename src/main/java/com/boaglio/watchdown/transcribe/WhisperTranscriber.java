@@ -1,5 +1,6 @@
 package com.boaglio.watchdown.transcribe;
 
+import com.boaglio.watchdown.Progress;
 import com.boaglio.watchdown.config.WhisperConfig;
 import com.boaglio.watchdown.process.ProcessException;
 import com.boaglio.watchdown.process.ProcessResult;
@@ -9,12 +10,18 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /** {@link Transcriber} backed by the openai-whisper command line tool. */
 public class WhisperTranscriber implements Transcriber {
+
+    /** Whisper prints each segment as {@code [00:06.500 --> 00:12.000]  text} while it works. */
+    private static final Pattern SEGMENT_LINE = Pattern.compile(
+            "-->\\s*(?:(\\d+):)?(\\d+):(\\d+)(?:\\.\\d+)?]");
 
     private final ProcessRunner runner;
     private final JsonMapper mapper;
@@ -34,7 +41,8 @@ public class WhisperTranscriber implements Transcriber {
     }
 
     @Override
-    public Transcript transcribe(Path audio, Path workDirectory, String language) {
+    public Transcript transcribe(Path audio, Path workDirectory, String language, int durationSeconds,
+            Progress progress) {
         try {
             Files.createDirectories(workDirectory);
         } catch (IOException e) {
@@ -55,7 +63,8 @@ public class WhisperTranscriber implements Transcriber {
 
         ProcessResult result;
         try {
-            result = runner.run(command, config.timeout());
+            result = runner.run(command, config.timeout(),
+                    line -> reportProgress(line, durationSeconds, progress));
         } catch (ProcessException e) {
             throw new TranscriptionException(e.getMessage(), e);
         }
@@ -69,6 +78,25 @@ public class WhisperTranscriber implements Transcriber {
             throw new TranscriptionException("whisper finished but " + json + " is missing");
         }
         return readCached(json);
+    }
+
+    /**
+     * Turns the position whisper has reached into a fraction of the recording. Without a duration
+     * there is nothing to divide by, so the reporter falls back to its spinner.
+     */
+    static void reportProgress(String line, int durationSeconds, Progress progress) {
+        if (durationSeconds <= 0) {
+            return;
+        }
+        Matcher segment = SEGMENT_LINE.matcher(line);
+        if (!segment.find()) {
+            return;
+        }
+        long hours = segment.group(1) == null ? 0 : Long.parseLong(segment.group(1));
+        long reached = hours * 3600
+                + Long.parseLong(segment.group(2)) * 60
+                + Long.parseLong(segment.group(3));
+        progress.fraction(Math.min(1.0, (double) reached / durationSeconds));
     }
 
     @Override

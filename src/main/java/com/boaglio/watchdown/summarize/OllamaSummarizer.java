@@ -1,5 +1,6 @@
 package com.boaglio.watchdown.summarize;
 
+import com.boaglio.watchdown.Progress;
 import com.boaglio.watchdown.config.SummaryConfig;
 import com.boaglio.watchdown.download.VideoMetadata;
 import com.boaglio.watchdown.render.Timestamps;
@@ -45,7 +46,7 @@ public class OllamaSummarizer implements Summarizer {
     }
 
     @Override
-    public Summary summarize(VideoMetadata metadata, Transcript transcript) {
+    public Summary summarize(VideoMetadata metadata, Transcript transcript, Progress progress) {
         if (transcript.isEmpty()) {
             throw new SummarizationException("the transcript is empty, there is nothing to summarize");
         }
@@ -53,10 +54,15 @@ public class OllamaSummarizer implements Summarizer {
         List<Chunk> chunks = new Chunker(config.chunkTokens()).split(transcript, metadata.chapters());
         log.debug("summarizing {} chunk(s) in {}", chunks.size(), language);
 
+        // The reduce call is roughly one chunk's worth of work, so count it as one more step.
+        int steps = chunks.size() > 1 ? chunks.size() + 1 : 1;
+        progress.fraction(0);
+
         List<String> chunkSummaries = new ArrayList<>();
         if (chunks.size() > 1) {
             for (int index = 0; index < chunks.size(); index++) {
                 Chunk chunk = chunks.get(index);
+                progress.note("%d/%d".formatted(index + 1, chunks.size()));
                 log.debug("chunk {}/{}: {} segments, ~{} tokens, {}–{}",
                         index + 1, chunks.size(), chunk.segments().size(), chunk.approximateTokens(),
                         Timestamps.format(chunk.start()), Timestamps.format(chunk.end()));
@@ -64,10 +70,14 @@ public class OllamaSummarizer implements Summarizer {
                 chunkSummaries.add(summarizeChunk(chunk, metadata, language));
                 log.debug("chunk {}/{} done in {}ms", index + 1, chunks.size(),
                         (System.nanoTime() - startedAt) / 1_000_000);
+                progress.fraction((double) (index + 1) / steps);
             }
+            progress.note("combining");
         }
 
         Summary summary = reduce(metadata, transcript, chunks, chunkSummaries, language);
+        progress.fraction(1);
+        progress.note("");
         return validate(summary, metadata);
     }
 

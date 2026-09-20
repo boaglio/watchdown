@@ -80,7 +80,7 @@ public class Pipeline {
         Path material = materialFor(url, source);
         reporter.stepDone();
 
-        Transcript transcript = transcribe(url.videoId(), source, material);
+        Transcript transcript = transcribe(url.videoId(), source, material, metadata.durationSeconds());
         return summarizeAndWrite(url.canonicalUrl(), metadata, transcript, source);
     }
 
@@ -99,7 +99,7 @@ public class Pipeline {
         TranscriptSource source = new TranscriptSource(TranscriptSource.Kind.WHISPER,
                 config.whisper().language(),
                 "whisper " + config.whisper().model() + ", lang=" + config.whisper().language());
-        Transcript transcript = transcribe(media.id(), source, media.path());
+        Transcript transcript = transcribe(media.id(), source, media.path(), duration);
 
         if (duration <= 0) {
             // No ffprobe: the transcript is the only thing that knows how long the recording is.
@@ -117,7 +117,7 @@ public class Pipeline {
         reporter.stepStart(3, STEPS, "Summarizing", "%s, %d chunk%s"
                 .formatted(config.ollama().model(), chunks, chunks == 1 ? "" : "s"));
         try {
-            summary = summarizer.summarize(metadata, transcript);
+            summary = summarizer.summarize(metadata, transcript, reporter.progress());
             reporter.stepDone();
         } catch (WatchdownException e) {
             failure = e.getMessage();
@@ -177,10 +177,10 @@ public class Pipeline {
             return null;
         }
         log.debug("cache miss: {}", audio);
-        return downloader.downloadAudio(url, cache.directoryFor(url.videoId()));
+        return downloader.downloadAudio(url, cache.directoryFor(url.videoId()), reporter.progress());
     }
 
-    private Transcript transcribe(String id, TranscriptSource source, Path material) {
+    private Transcript transcribe(String id, TranscriptSource source, Path material, int durationSeconds) {
         if (source.fromCaptions()) {
             reporter.stepStart(2, STEPS, "Transcribing", source.display());
             Transcript transcript = captionParser.read(material, source.language());
@@ -200,7 +200,7 @@ public class Pipeline {
         log.debug("cache miss: {}", transcriptFile);
         reporter.stepStart(2, STEPS, "Transcribing", source.display());
         Transcript transcript = transcriber.transcribe(material, cache.directoryFor(id),
-                config.whisper().language());
+                config.whisper().language(), durationSeconds, reporter.progress());
         reporter.stepDone();
         return logged(transcript);
     }

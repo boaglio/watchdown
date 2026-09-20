@@ -95,8 +95,17 @@ Usage: watchdown [OPTIONS] [<url>...]
   -V, --version            Show version
 ```
 
+On a terminal you get a live bar for the slow steps, so you can tell the difference between
+working and stuck:
+
+```
+[2/4] Transcribing  whisper small, lang=pt  ███████░░░░░░░  37%  2:41
+[3/4] Summarizing   gemma3:4b, 12 chunks    ██████░░░░░░░░  31%  4/12  0:52
+```
+
 Progress goes to **stderr**, one line per step; the output folder paths go to **stdout**, one per
-line, so watchdown fits into a pipeline:
+line, so watchdown fits into a pipeline. When stderr is not a terminal the bar switches itself off
+and the output is plain lines with no escape codes:
 
 ```bash
 watchdown https://youtu.be/dQw4w9WgXcQ | xargs -I{} ls {}

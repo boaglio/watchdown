@@ -9,6 +9,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,7 +26,8 @@ public class DefaultProcessRunner implements ProcessRunner {
     private static final String STREAM_PREFIX = "  │ ";
 
     @Override
-    public ProcessResult run(List<String> command, Duration timeout, Path workingDirectory) {
+    public ProcessResult run(List<String> command, Duration timeout, Path workingDirectory,
+            Consumer<String> onLine) {
         if (command.isEmpty()) {
             throw new ProcessException("empty command");
         }
@@ -46,8 +48,8 @@ public class DefaultProcessRunner implements ProcessRunner {
 
         StringBuilder stdout = new StringBuilder();
         StringBuilder stderr = new StringBuilder();
-        Thread outReader = drain(process.getInputStream(), stdout);
-        Thread errReader = drain(process.getErrorStream(), stderr);
+        Thread outReader = drain(process.getInputStream(), stdout, onLine);
+        Thread errReader = drain(process.getErrorStream(), stderr, onLine);
 
         boolean finished;
         try {
@@ -72,7 +74,7 @@ public class DefaultProcessRunner implements ProcessRunner {
         return new ProcessResult(command, exitCode, stdout.toString(), stderr.toString(), duration);
     }
 
-    private Thread drain(InputStream stream, StringBuilder sink) {
+    private Thread drain(InputStream stream, StringBuilder sink, Consumer<String> onLine) {
         Thread thread = new Thread(() -> {
             try (BufferedReader reader = new BufferedReader(
                     new InputStreamReader(stream, StandardCharsets.UTF_8))) {
@@ -80,6 +82,7 @@ public class DefaultProcessRunner implements ProcessRunner {
                 while ((line = reader.readLine()) != null) {
                     sink.append(line).append('\n');
                     log.debug("{}{}", STREAM_PREFIX, line);
+                    onLine.accept(line);
                 }
             } catch (IOException e) {
                 log.debug("{}<stream closed: {}>", STREAM_PREFIX, e.getMessage());

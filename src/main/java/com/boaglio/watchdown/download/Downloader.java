@@ -1,5 +1,6 @@
 package com.boaglio.watchdown.download;
 
+import com.boaglio.watchdown.Progress;
 import java.nio.file.Path;
 
 /** Fetches the metadata, the captions and the audio of a single video. */
@@ -8,7 +9,11 @@ public interface Downloader {
     VideoMetadata fetchMetadata(YouTubeUrl url);
 
     /** Downloads the audio into {@code targetDirectory} and returns the audio file. */
-    Path downloadAudio(YouTubeUrl url, Path targetDirectory);
+    Path downloadAudio(YouTubeUrl url, Path targetDirectory, Progress progress);
+
+    default Path downloadAudio(YouTubeUrl url, Path targetDirectory) {
+        return downloadAudio(url, targetDirectory, Progress.NONE);
+    }
 
     /**
      * Downloads one caption track into {@code targetDirectory} and returns the file.

@@ -1,5 +1,6 @@
 package com.boaglio.watchdown.download;
 
+import com.boaglio.watchdown.Progress;
 import com.boaglio.watchdown.config.YtDlpConfig;
 import com.boaglio.watchdown.process.ProcessException;
 import com.boaglio.watchdown.process.ProcessResult;
@@ -12,6 +13,8 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import tools.jackson.core.JacksonException;
@@ -25,6 +28,8 @@ public class YtDlpDownloader implements Downloader {
     private static final DateTimeFormatter UPLOAD_DATE = DateTimeFormatter.ofPattern("yyyyMMdd");
     private static final String AUDIO_FORMAT = "mp3";
     private static final String CAPTION_FORMAT = "json3";
+    private static final Pattern DOWNLOAD_PERCENT = Pattern.compile(
+            "\\[download]\\s+(\\d+(?:\\.\\d+)?)%");
 
     private final ProcessRunner runner;
     private final JsonMapper mapper;
@@ -156,7 +161,7 @@ public class YtDlpDownloader implements Downloader {
     }
 
     @Override
-    public Path downloadAudio(YouTubeUrl url, Path targetDirectory) {
+    public Path downloadAudio(YouTubeUrl url, Path targetDirectory, Progress progress) {
         try {
             Files.createDirectories(targetDirectory);
         } catch (IOException e) {
@@ -172,7 +177,7 @@ public class YtDlpDownloader implements Downloader {
         command.addAll(config.extraArgs());
         command.add(url.canonicalUrl());
 
-        ProcessResult result = run(command);
+        ProcessResult result = run(command, line -> reportProgress(line, progress));
         if (!result.successful()) {
             throw new DownloadException("yt-dlp could not download the audio (exit "
                     + result.exitCode() + "):\n" + result.tailOfStderr(20));
@@ -186,10 +191,22 @@ public class YtDlpDownloader implements Downloader {
     }
 
     private ProcessResult run(List<String> command) {
+        return run(command, line -> { });
+    }
+
+    private ProcessResult run(List<String> command, java.util.function.Consumer<String> onLine) {
         try {
-            return runner.run(command, config.timeout());
+            return runner.run(command, config.timeout(), onLine);
         } catch (ProcessException e) {
             throw new DownloadException(e.getMessage(), e);
+        }
+    }
+
+    /** yt-dlp rewrites a line like {@code [download]  45.2% of 3.40MiB at 1.2MiB/s}. */
+    static void reportProgress(String line, Progress progress) {
+        Matcher percent = DOWNLOAD_PERCENT.matcher(line);
+        if (percent.find()) {
+            progress.fraction(Double.parseDouble(percent.group(1)) / 100.0);
         }
     }
 
