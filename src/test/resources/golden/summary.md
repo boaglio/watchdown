@@ -9,7 +9,7 @@ language: "en"
 generated_at: "2025-09-18T12:00:00Z"
 ---
 
-# Building a local transcription pipeline
+# Building a Local Transcription Pipeline
 
 The video walks through a transcription pipeline that runs entirely on your own machine. It combines yt-dlp, whisper and a local model, and caches every step.
 

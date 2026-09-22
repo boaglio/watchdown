@@ -82,8 +82,17 @@ class MarkdownRendererGoldenTest {
     }
 
     @Test
+    void headsTheSummaryWithTheVideosOwnTitle() {
+        // Not a title from the model: it only ever sees the transcript, and it has been seen to
+        // turn a video about beef into one about chicken.
+        String summary = new MarkdownRenderer(FIXED).summary(request(summary()));
+
+        assertThat(summary).contains("# Building a Local Transcription Pipeline");
+    }
+
+    @Test
     void leavesOutTheKeyPointsHeadingWhenThereAreNone() {
-        Summary withoutPoints = new Summary("A title", "A TL;DR.", List.of(),
+        Summary withoutPoints = new Summary("A TL;DR.", List.of(),
                 List.of(new Section("Only section", 0, "Text.")));
 
         String summary = new MarkdownRenderer(FIXED).summary(new RenderRequest(metadata(), transcript(),
@@ -166,7 +175,6 @@ class MarkdownRendererGoldenTest {
 
     private static Summary summary() {
         return new Summary(
-                "Building a local transcription pipeline",
                 "The video walks through a transcription pipeline that runs entirely on your own "
                         + "machine. It combines yt-dlp, whisper and a local model, and caches every step.",
                 List.of(

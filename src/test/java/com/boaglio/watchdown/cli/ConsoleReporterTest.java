@@ -55,6 +55,56 @@ class ConsoleReporterTest {
     }
 
     @Test
+    void showsTheStepBeforeItKnowsWhatTheVideoIs() {
+        // Asking yt-dlp about a video can take a while, and a blank screen looks like a hang.
+        ConsoleReporter reporter = reporter(false, true);
+
+        reporter.stepStart(1, 4, "Downloading");
+        reporter.doing("asking yt-dlp about the video");
+
+        assertThat(stderr()).contains("[1/4] Downloading");
+        assertThat(stderr()).contains("asking yt-dlp about the video");
+        assertThat(stderr()).containsAnyOf("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏");
+    }
+
+    @Test
+    void theTitleJoinsTheLineThatIsAlreadyOnScreen() {
+        ConsoleReporter reporter = reporter(false, true);
+
+        reporter.stepStart(1, 4, "Downloading");
+        reporter.doing("asking yt-dlp about the video");
+        reporter.detail("\"A video\" (12:34)");
+        reporter.stepDone();
+
+        String lastLine = stderr().substring(stderr().lastIndexOf('\r') + 1);
+        assertThat(lastLine).startsWith("[1/4] Downloading  \"A video\" (12:34) ");
+        assertThat(lastLine).contains("done").doesNotContain("asking yt-dlp");
+    }
+
+    @Test
+    void whatTheStepIsWaitingForNeverBreaksThePlainOutput() {
+        ConsoleReporter reporter = reporter(false, false);
+
+        reporter.stepStart(1, 4, "Downloading");
+        reporter.doing("asking yt-dlp about the video");
+        reporter.detail("\"A video\" (12:34)");
+        reporter.stepDone();
+
+        assertThat(stderr().lines()).hasSize(1);
+        assertThat(stderr()).doesNotContain("asking yt-dlp").doesNotContain("\r");
+    }
+
+    @Test
+    void theLauncherCanSayThatStderrIsATerminalEvenWhenStdoutIsAPipe() {
+        assertThat(ConsoleReporter.live("always", false)).isTrue();
+        assertThat(ConsoleReporter.live("never", true)).isFalse();
+        assertThat(ConsoleReporter.live("auto", true)).isTrue();
+        assertThat(ConsoleReporter.live(null, true)).isTrue();
+        assertThat(ConsoleReporter.live(null, false)).isFalse();
+        assertThat(ConsoleReporter.live("  ", false)).isFalse();
+    }
+
+    @Test
     void leavesOneCleanLineInTheScrollbackWhenTheStepEnds() {
         ConsoleReporter reporter = reporter(false, true);
 

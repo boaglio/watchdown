@@ -24,13 +24,18 @@ import org.springframework.core.io.Resource;
  * forbid outside facts and timestamps that are not in the text, and anything outside
  * {@code [0, duration]} is dropped afterwards.
  *
- * <p>A small model will often answer with a title, a TL;DR and key points and no sections at all,
- * which leaves a summary with nothing to read. Rather than accept that, the sections are chased:
- * up to {@code summary.sectionAttempts} tries, each asking a smaller question than the last —
- * first the whole summary again with the omission named, then the sections on their own, then the
- * same thing with the number asked for coming down. The TL;DR and key points from the first good
- * answer are kept throughout, so a later attempt can only add sections, never take anything away.
- * If every attempt comes back empty the summary is still returned: no sections beats no summary.
+ * <p>A small model will often answer with a TL;DR and key points and no sections at all, which
+ * leaves a summary with nothing to read. Rather than accept that, the sections are chased: up to
+ * {@code summary.sectionAttempts} tries, each asking a smaller question than the last — first the
+ * whole summary again with the omission named, then the sections on their own, then the same thing
+ * with the number asked for coming down. The TL;DR and key points from the first good answer are
+ * kept throughout, so a later attempt can only add sections, never take anything away.
+ *
+ * <p>When the model still will not write any, watchdown writes them itself from the parts of the
+ * video it already summarized in the map step, which is what a section is anyway. Only a video
+ * short enough to have skipped that step pays for anything extra. A summary with no sections at
+ * all is now close to impossible, but if it does happen the summary is still returned: no sections
+ * beats no summary.
  */
 public class OllamaSummarizer implements Summarizer {
 
@@ -47,6 +52,8 @@ public class OllamaSummarizer implements Summarizer {
             material, and a one-sentence summary. Every video has parts, however short it is.""";
     /** How many sections attempt 3 asks for; each attempt after it asks for one fewer, down to one. */
     private static final int FIRST_MINIMUM_SECTIONS = 3;
+    /** How many parts a one-chunk transcript is cut into when the sections have to be built here. */
+    private static final int FALLBACK_PARTS = 3;
 
     private final ChatClient chatClient;
     private final Resource chunkPrompt;
@@ -129,10 +136,98 @@ public class OllamaSummarizer implements Summarizer {
                 "material", body));
 
         Summary summary = validate(askWithParseRetry(prompt), metadata);
-        if (!summary.sections().isEmpty() || config.sectionAttempts() <= 1) {
+        if (!summary.sections().isEmpty()) {
             return summary;
         }
-        return chaseSections(summary, metadata, body, language, prompt, progress);
+        if (config.sectionAttempts() > 1) {
+            summary = chaseSections(summary, metadata, body, language, prompt, progress);
+            if (!summary.sections().isEmpty()) {
+                return summary;
+            }
+        }
+        List<Section> parts = sectionsFromParts(metadata, transcript, chunks, chunkSummaries, language, progress);
+        return parts.isEmpty() ? summary : new Summary(summary.tldr(), summary.keyPoints(), parts);
+    }
+
+    /**
+     * The sections we can build ourselves when the model will not write any.
+     *
+     * <p>The map step already summarized the video part by part, and a part is exactly what a
+     * section is: a title, the moment it starts, and what it says. Those summaries are free — they
+     * were paid for on the way here — and their timestamps are ours, so nothing in them can be
+     * invented. A transcript short enough to skip the map step has no such summaries, so its parts
+     * are summarized now; that costs a few calls, but only for a video that fits in one chunk.
+     */
+    private List<Section> sectionsFromParts(VideoMetadata metadata, Transcript transcript, List<Chunk> chunks,
+            List<String> chunkSummaries, String language, Progress progress) {
+        if (!chunkSummaries.isEmpty()) {
+            log.debug("building the sections from the {} chunk summaries", chunkSummaries.size());
+            return zip(chunks, chunkSummaries, metadata);
+        }
+        if (config.sectionAttempts() <= 1) {
+            // "Ask once and take what comes back" covers the summary itself; it also means we do
+            // not go off and spend more calls on sections the user did not insist on.
+            return List.of();
+        }
+
+        List<Chunk> parts = new Chunker(partTokensFor(transcript)).split(transcript, List.of());
+        log.debug("no sections from the model; summarizing the video in {} part(s) instead", parts.size());
+        List<String> summaries = new ArrayList<>();
+        for (int index = 0; index < parts.size(); index++) {
+            progress.note("sections %d/%d".formatted(index + 1, parts.size()));
+            try {
+                summaries.add(summarizeChunk(parts.get(index), metadata, language));
+            } catch (RuntimeException e) {
+                log.debug("summarizing part {} for the sections failed: {}", index + 1, summarize(e));
+                return List.of();
+            }
+        }
+        progress.note("");
+        return zip(parts, summaries, metadata);
+    }
+
+    /** Splits what fits in one chunk into {@link #FALLBACK_PARTS} parts of roughly equal length. */
+    private static int partTokensFor(Transcript transcript) {
+        int tokens = transcript.segments().stream().mapToInt(Segment::approximateTokens).sum();
+        return Math.max(1, (int) Math.ceil((double) tokens / FALLBACK_PARTS));
+    }
+
+    /** One section per part: the chapter's name or "Part N", the part's own start, and its summary. */
+    private static List<Section> zip(List<Chunk> parts, List<String> summaries, VideoMetadata metadata) {
+        List<Section> sections = new ArrayList<>();
+        for (int index = 0; index < summaries.size() && index < parts.size(); index++) {
+            Chunk part = parts.get(index);
+            String prose = leadingProse(summaries.get(index));
+            if (!hasText(prose)) {
+                // A heading with nothing under it is worse than no section at all.
+                continue;
+            }
+            String title = hasText(part.title()) ? part.title() : "Part " + (index + 1);
+            sections.add(new Section(title, part.start(), prose));
+        }
+        return usableSections(sections, metadata);
+    }
+
+    /**
+     * The prose a chunk summary opens with, which is what a section wants. The bullet list that
+     * follows it belongs to the key points, and its bracketed timestamps would only be escaped
+     * into noise in a section paragraph.
+     */
+    static String leadingProse(String chunkSummary) {
+        if (chunkSummary == null) {
+            return "";
+        }
+        StringBuilder prose = new StringBuilder();
+        for (String line : chunkSummary.strip().lines().toList()) {
+            String trimmed = line.strip();
+            if (trimmed.startsWith("-") || trimmed.startsWith("*") || trimmed.startsWith("#")) {
+                break;
+            }
+            if (!trimmed.isEmpty()) {
+                prose.append(prose.isEmpty() ? "" : " ").append(trimmed);
+            }
+        }
+        return prose.toString();
     }
 
     /** The first ask, and the one parse-failure retry of AGENTS.md section 6.3. */
@@ -174,7 +269,7 @@ public class OllamaSummarizer implements Summarizer {
             log.debug("sections attempt {}/{}: {} usable in {}ms", attempt, attempts, sections.size(),
                     (System.nanoTime() - startedAt) / 1_000_000);
             if (!sections.isEmpty()) {
-                return new Summary(best.title(), best.tldr(), best.keyPoints(), sections);
+                return new Summary(best.tldr(), best.keyPoints(), sections);
             }
         }
         log.debug("no sections after {} attempt(s); keeping the summary without them", attempts);
@@ -241,8 +336,7 @@ public class OllamaSummarizer implements Summarizer {
                     + "missing or outside the video", droppedPoints, droppedSections);
         }
 
-        String title = summary.title() == null || summary.title().isBlank() ? metadata.title() : summary.title();
-        return new Summary(title, summary.tldr().strip(), keyPoints, sections);
+        return new Summary(summary.tldr().strip(), keyPoints, sections);
     }
 
     /** The sections worth keeping: some text, a moment inside the video, and in order. */

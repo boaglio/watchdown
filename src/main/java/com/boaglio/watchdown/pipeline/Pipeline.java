@@ -90,6 +90,7 @@ public class Pipeline {
      */
     public VideoJob run(LocalMedia media) {
         reporter.stepStart(1, STEPS, "Reading");
+        reporter.doing("measuring the file");
         int duration = probe.durationOf(media.path());
         VideoMetadata metadata = media.asMetadata(duration);
         reporter.detail("\"%s\" (%s)".formatted(metadata.title(),
@@ -139,6 +140,8 @@ public class Pipeline {
             metadata = readMetadata(metadataFile);
         } else {
             log.debug("cache miss: {}", metadataFile);
+            // The first thing every run does, and the one that most often takes a while.
+            reporter.doing("asking yt-dlp about the video");
             metadata = downloader.fetchMetadata(url);
             writeMetadata(metadataFile, metadata);
         }
@@ -162,6 +165,7 @@ public class Pipeline {
             return captions;
         }
         log.debug("cache miss: {}", captions);
+        reporter.doing("captions");
         return downloader.downloadCaptions(url, cache.directoryFor(url.videoId()),
                 source.language(), source.automatic());
     }
@@ -177,6 +181,7 @@ public class Pipeline {
             return null;
         }
         log.debug("cache miss: {}", audio);
+        reporter.doing("audio");
         return downloader.downloadAudio(url, cache.directoryFor(url.videoId()), reporter.progress());
     }
 

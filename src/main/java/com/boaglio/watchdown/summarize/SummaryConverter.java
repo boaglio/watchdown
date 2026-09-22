@@ -7,6 +7,7 @@ import org.springframework.ai.converter.CompositeResponseTextCleaner;
 import org.springframework.ai.converter.ResponseTextCleaner;
 import org.springframework.ai.converter.WhitespaceCleaner;
 import tools.jackson.core.json.JsonReadFeature;
+import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
@@ -91,6 +92,9 @@ public final class SummaryConverter {
 
     static JsonMapper lenientMapper() {
         return JsonMapper.builder()
+                // A model that adds a field of its own ("title", "duration", "notes") should not
+                // cost us the whole summary; we read the fields we asked for and ignore the rest.
+                .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
                 .enable(JsonReadFeature.ALLOW_LEADING_ZEROS_FOR_NUMBERS)
                 .enable(JsonReadFeature.ALLOW_SINGLE_QUOTES)
                 .enable(JsonReadFeature.ALLOW_UNQUOTED_PROPERTY_NAMES)

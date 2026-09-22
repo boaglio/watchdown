@@ -12,9 +12,17 @@ import java.time.Duration;
  * paths, one per line, which is what makes the tool scripting-friendly.
  *
  * <p>On a terminal the current step's line is redrawn in place with elapsed time, a spinner, and a
- * bar once the step knows how far along it is. When stderr is not a terminal, or in verbose mode
- * where the debug log needs the screen, nothing is redrawn and the output is one plain line per
- * step.
+ * bar once the step knows how far along it is. The line appears the moment the step starts, before
+ * anything is known about it: the first thing a run does is ask yt-dlp about the video, that can
+ * take a while, and a blank screen is indistinguishable from a hang. What the step is waiting for
+ * shows next to the spinner, and the title replaces it once yt-dlp has answered.
+ *
+ * <p>When stderr is not a terminal, or in verbose mode where the debug log needs the screen,
+ * nothing is redrawn and the output is one plain line per step.
+ *
+ * <p>Java cannot see whether stderr is a terminal — {@link java.io.Console} answers for stdin and
+ * stdout, and watchdown's stdout is usually a pipe, which is the whole point of it. So the
+ * launcher, which can see it, passes the answer in {@code WATCHDOWN_PROGRESS}.
  */
 public class ConsoleReporter {
 
@@ -30,7 +38,8 @@ public class ConsoleReporter {
 
     private long startedAt;
     private String header = "";
-    private boolean headerPrinted;
+    private volatile String detail = "";
+    private boolean printed;
     private int paintedWidth;
     private int frame;
 
@@ -51,18 +60,44 @@ public class ConsoleReporter {
     }
 
     private static boolean isTerminal() {
+        return live(System.getenv("WATCHDOWN_PROGRESS"), consoleIsTerminal());
+    }
+
+    private static boolean consoleIsTerminal() {
         java.io.Console console = System.console();
         return console != null && console.isTerminal();
     }
 
-    /** Starts the timer for a step whose detail is only known once the step has begun. */
-    public void stepStart(int index, int total, String label) {
+    /**
+     * {@code always} and {@code never} settle it; {@code auto}, or nothing at all, falls back to
+     * what Java can see, which is stdout. The launcher sets {@code always} when stderr is a
+     * terminal, so redirecting stdout to a file no longer costs you the progress line.
+     */
+    static boolean live(String setting, boolean consoleIsTerminal) {
+        if (setting == null || setting.isBlank() || "auto".equalsIgnoreCase(setting.strip())) {
+            return consoleIsTerminal;
+        }
+        return "always".equalsIgnoreCase(setting.strip());
+    }
+
+    /**
+     * Starts the timer for a step whose detail is only known once the step has begun. On a
+     * terminal the line goes up right away, so the wait for yt-dlp is visibly a wait.
+     */
+    public synchronized void stepStart(int index, int total, String label) {
         startedAt = System.nanoTime();
         header = "[%d/%d] %-12s ".formatted(index, total, label);
-        headerPrinted = false;
+        detail = "";
+        printed = false;
         fraction = -1;
         note = "";
         frame = 0;
+        paintedWidth = 0;
+        if (live) {
+            printed = true;
+            paint();
+            startTicker();
+        }
     }
 
     public void stepStart(int index, int total, String label, String detail) {
@@ -70,22 +105,43 @@ public class ConsoleReporter {
         detail(detail);
     }
 
-    /** Prints the step line. In verbose mode it ends there, so the debug log can follow beneath. */
-    public void detail(String detail) {
-        if (headerPrinted) {
+    /**
+     * What this step is about — the video's title, the model — as soon as it is known. On a
+     * terminal it joins the line already on screen; elsewhere it prints the line, and in verbose
+     * mode it ends there so the debug log can follow beneath.
+     */
+    public synchronized void detail(String text) {
+        if (live) {
+            detail = text == null ? "" : text;
+            // Whatever the step was waiting for, it has it now.
+            note = "";
+            repaint();
             return;
         }
-        headerPrinted = true;
-        header = header + detail;
+        if (printed) {
+            return;
+        }
+        printed = true;
+        detail = text == null ? "" : text;
         if (verbose) {
-            err.println(header);
-        } else if (live) {
-            paint();
-            startTicker();
+            err.println(line());
         } else {
-            err.print(header);
+            err.print(line());
             err.flush();
         }
+    }
+
+    /**
+     * What the step is waiting on right now, shown next to the spinner: the metadata, the
+     * captions, the audio. It is the difference between a slow step and a stuck one.
+     */
+    public synchronized void doing(String what) {
+        note = what == null ? "" : what;
+        repaint();
+    }
+
+    private String line() {
+        return header + detail;
     }
 
     /** The handle this step reports its progress into. */
@@ -117,7 +173,7 @@ public class ConsoleReporter {
     public void finalStep(int index, int total, String label, Path folder) {
         stopTicker();
         err.println("[%d/%d] %-12s %s".formatted(index, total, label, folder));
-        headerPrinted = false;
+        printed = false;
     }
 
     /** The output folder path, on stdout, for the caller's script. */
@@ -160,13 +216,13 @@ public class ConsoleReporter {
     }
 
     private synchronized void repaint() {
-        if (live && headerPrinted) {
+        if (live && printed) {
             paint();
         }
     }
 
     private void paint() {
-        StringBuilder line = new StringBuilder(header);
+        StringBuilder line = new StringBuilder(line());
         double done = fraction;
         if (done >= 0 && done <= 1) {
             int filled = (int) Math.round(done * BAR_WIDTH);
@@ -187,9 +243,9 @@ public class ConsoleReporter {
         paintedWidth = text.length();
     }
 
-    private void finishLine(String tail) {
+    private synchronized void finishLine(String tail) {
         stopTicker();
-        if (!headerPrinted) {
+        if (!printed) {
             detail("");
             stopTicker();
         }
@@ -199,12 +255,12 @@ public class ConsoleReporter {
             if (live) {
                 // Wipe the bar before the final line lands in the scrollback.
                 err.print("\r" + " ".repeat(paintedWidth) + "\r");
-                err.print(header);
+                err.print(line());
             }
-            int padding = Math.max(1, DOTS_COLUMN - header.length());
+            int padding = Math.max(1, DOTS_COLUMN - line().length());
             err.println(" " + ".".repeat(padding) + " " + tail);
         }
-        headerPrinted = false;
+        printed = false;
         paintedWidth = 0;
     }
 

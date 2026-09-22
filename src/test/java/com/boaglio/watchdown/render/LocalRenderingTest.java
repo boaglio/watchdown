@@ -76,7 +76,7 @@ class LocalRenderingTest {
         Transcript transcript = new Transcript("en", List.of(
                 new Segment(0, 10, "Hello there."),
                 new Segment(120, 130, "And that is the plan.")));
-        Summary summary = new Summary("standup", "A short standup.",
+        Summary summary = new Summary("A short standup.",
                 List.of(new KeyPoint("A point", 30)),
                 List.of(new Section("The middle", 120, "What was said.")));
         return new RenderRequest(metadata, transcript, summary, null,

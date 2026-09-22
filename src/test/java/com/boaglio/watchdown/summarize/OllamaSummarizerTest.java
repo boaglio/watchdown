@@ -41,7 +41,6 @@ class OllamaSummarizerTest {
 
         Summary summary = summarizer(model, SummaryConfig.defaults()).summarize(metadata(), transcript());
 
-        assertThat(summary.title()).isEqualTo("Local transcription");
         assertThat(summary.tldr()).startsWith("The video shows");
         assertThat(summary.keyPoints()).hasSize(2);
         assertThat(summary.keyPoints().getFirst().timestamp()).isEqualTo(14);
@@ -80,7 +79,7 @@ class OllamaSummarizerTest {
 
         Summary summary = summarizer(model, SummaryConfig.defaults()).summarize(metadata(), transcript());
 
-        assertThat(summary.title()).isEqualTo("Local transcription");
+        assertThat(summary.tldr()).startsWith("The video shows");
         assertThat(model.callCount()).isEqualTo(2);
         assertThat(model.prompts().getLast()).contains("could not be parsed");
     }
@@ -248,7 +247,6 @@ class OllamaSummarizerTest {
 
         Summary summary = summarizer(model, SummaryConfig.defaults()).summarize(metadata(), transcript());
 
-        assertThat(summary.title()).isEqualTo("Local transcription");
         assertThat(summary.tldr()).isEqualTo("The video shows how to transcribe locally.");
         assertThat(summary.keyPoints()).extracting(KeyPoint::text)
                 .containsExactly("Everything runs on your laptop");
@@ -259,7 +257,7 @@ class OllamaSummarizerTest {
         StubChatModel model = new StubChatModel()
                 .answering(NO_SECTIONS, NO_SECTIONS, NO_SECTIONS, NO_SECTIONS, SECTIONS_ONLY);
 
-        summarizer(model, SummaryConfig.defaults()).summarize(metadata(), transcript());
+        summarizer(model, attempts(5)).summarize(metadata(), transcript());
 
         assertThat(model.callCount()).isEqualTo(5);
         assertThat(model.prompts().get(2)).contains("3 or more entries");
@@ -268,13 +266,13 @@ class OllamaSummarizerTest {
     }
 
     @Test
-    void givesUpAfterTheConfiguredNumberOfAttemptsAndKeepsTheSummary() {
+    void keepsTheSummaryWhenNothingAtAllProducesSections() {
+        // Three asks, then three parts that come back empty: no sections, but still a summary.
         StubChatModel model = new StubChatModel()
-                .answering(NO_SECTIONS, NO_SECTIONS, NO_SECTIONS, NO_SECTIONS, NO_SECTIONS);
+                .answering(NO_SECTIONS, NO_SECTIONS, NO_SECTIONS, "", "", "");
 
         Summary summary = summarizer(model, SummaryConfig.defaults()).summarize(metadata(), transcript());
 
-        assertThat(model.callCount()).isEqualTo(5);
         assertThat(summary.sections()).isEmpty();
         assertThat(summary.tldr()).isEqualTo("The video shows how to transcribe locally.");
         assertThat(summary.keyPoints()).hasSize(1);
@@ -298,7 +296,7 @@ class OllamaSummarizerTest {
         StubChatModel model = new StubChatModel()
                 .answering(NO_SECTIONS, NO_SECTIONS, withoutMoments, SECTIONS_ONLY);
 
-        Summary summary = summarizer(model, SummaryConfig.defaults()).summarize(metadata(), transcript());
+        Summary summary = summarizer(model, attempts(5)).summarize(metadata(), transcript());
 
         assertThat(summary.sections()).extracting(Section::title).containsExactly("Why local", "The pipeline");
         assertThat(model.callCount()).isEqualTo(4);
@@ -324,14 +322,89 @@ class OllamaSummarizerTest {
         assertThat(model.callCount()).isEqualTo(1);
     }
 
+    // ------------------------------------------------- the sections watchdown builds itself
+
+    @Test
+    void buildsTheSectionsFromTheChunkSummariesWhenTheModelWillNotWriteAny() {
+        // The map step already summarized the video part by part. Those parts are the sections,
+        // and they cost nothing: no call is made beyond the two chunks and the three asks.
+        StubChatModel model = new StubChatModel().answering(
+                "The reasons to avoid the cloud.\n\n- Nothing leaves the laptop [00:02]",
+                "yt-dlp, whisper, then a local model.",
+                NO_SECTIONS, NO_SECTIONS, NO_SECTIONS);
+
+        Summary summary = summarizer(model, SummaryConfig.defaults()).summarize(withChapters(), transcript());
+
+        assertThat(summary.sections()).extracting(Section::title).containsExactly("Why local", "The pipeline");
+        assertThat(summary.sections()).extracting(Section::summary)
+                .containsExactly("The reasons to avoid the cloud.", "yt-dlp, whisper, then a local model.");
+        assertThat(summary.sections()).extracting(Section::start).containsExactly(0.0, 240.5);
+        assertThat(model.callCount()).isEqualTo(5);
+    }
+
+    @Test
+    void summarizesTheVideoInPartsWhenThereIsNoMapStepToBorrowFrom() {
+        // A transcript that fits in one chunk has no chunk summaries, so the parts are summarized
+        // now. The moments are ours, taken from the segments, so none of them can be invented.
+        StubChatModel model = new StubChatModel().answering(
+                NO_SECTIONS, NO_SECTIONS, NO_SECTIONS,
+                "The opening.", "The middle.", "The end.");
+
+        Summary summary = summarizer(model, SummaryConfig.defaults()).summarize(metadata(), transcript());
+
+        assertThat(summary.sections()).extracting(Section::title)
+                .containsExactly("Part 1", "Part 2", "Part 3");
+        assertThat(summary.sections()).extracting(Section::summary)
+                .containsExactly("The opening.", "The middle.", "The end.");
+        assertThat(summary.sections()).extracting(Section::start).containsExactly(0.0, 240.5, 740.0);
+        assertThat(model.callCount()).isEqualTo(6);
+    }
+
+    @Test
+    void aSectionTakesTheProseOfItsPartAndLeavesTheBulletsOut() {
+        assertThat(OllamaSummarizer.leadingProse("""
+                The host explains which cut to buy.
+
+                - Chuck is the best cut [00:13]
+                - Avoid patinho [00:25]"""))
+                .isEqualTo("The host explains which cut to buy.");
+    }
+
+    @Test
+    void aPartTheModelSaidNothingAboutLeavesNoEmptyHeadingBehind() {
+        StubChatModel model = new StubChatModel().answering(
+                NO_SECTIONS, NO_SECTIONS, NO_SECTIONS,
+                "The opening.", "", "   ");
+
+        Summary summary = summarizer(model, SummaryConfig.defaults()).summarize(metadata(), transcript());
+
+        assertThat(summary.sections()).extracting(Section::title).containsExactly("Part 1");
+    }
+
+    @Test
+    void oneAttemptSpendsNoCallsOfItsOwnOnTheSections() {
+        StubChatModel model = new StubChatModel().answering(NO_SECTIONS);
+
+        Summary summary = summarizer(model, oneAttempt()).summarize(metadata(), transcript());
+
+        assertThat(summary.sections()).isEmpty();
+        assertThat(summary.tldr()).isEqualTo("The video shows how to transcribe locally.");
+        assertThat(model.callCount()).isEqualTo(1);
+    }
+
     private static OllamaSummarizer summarizer(StubChatModel model, SummaryConfig config) {
         return new OllamaSummarizer(ChatClient.create(model), CHUNK_PROMPT, FINAL_PROMPT, SECTIONS_PROMPT, config);
     }
 
     /** The shipped defaults, but asking once: for the tests that are about validation, not retrying. */
     private static SummaryConfig oneAttempt() {
+        return attempts(1);
+    }
+
+    private static SummaryConfig attempts(int sectionAttempts) {
         SummaryConfig defaults = SummaryConfig.defaults();
-        return new SummaryConfig(defaults.language(), defaults.chunkTokens(), defaults.maxKeyPoints(), 1);
+        return new SummaryConfig(defaults.language(), defaults.chunkTokens(), defaults.maxKeyPoints(),
+                sectionAttempts);
     }
 
     private static Transcript transcript() {

@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+#
+# watchdown, from the project root:
+#
+#   ./watchdown https://youtu.be/VIDEO_ID
+#   ./watchdown --captions only -v https://youtu.be/VIDEO_ID
+#
+# It is a one-line shim over bin/watchdown, which builds the jar when it is missing and knows
+# every environment variable this one takes (WATCHDOWN_JAR, JAVA_OPTS, ...). Put bin/watchdown on
+# your PATH to run watchdown from anywhere.
+set -euo pipefail
+
+root=$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+exec "$root/bin/watchdown" "$@"

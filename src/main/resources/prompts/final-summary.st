@@ -13,7 +13,6 @@ Rules you must follow:
 - Write every piece of text in {language}.
 
 Produce:
-- title: a short, accurate title for the video.
 - tldr: two or three sentences that say what the video is about and what it concludes.
 - keyPoints: at most {maxKeyPoints} takeaways. Each has text and the timestamp it came from.
 - sections: the video in order, one entry per part, each with title, the timestamp it starts at,

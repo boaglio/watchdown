@@ -86,7 +86,12 @@ symlinks, so it works when linked onto the PATH; builds
 `exec`s the jar so arguments and exit codes pass straight through. Build
 progress goes to stderr, because stdout is reserved for the output folder
 paths. `WATCHDOWN_JAR` overrides the jar, and `JAVA_OPTS` is passed to the
-JVM.
+JVM. It also sets `WATCHDOWN_PROGRESS` when stderr is a terminal and the
+variable is unset, because the jar cannot see that for itself (§4).
+
+`watchdown` in the project root is a two-line shim that `exec`s
+`bin/watchdown`, for running the tool from the checkout. There is one
+launcher; the shim adds nothing of its own.
 
 Run `./mvnw test` before you finish any change.
 
@@ -139,6 +144,7 @@ up, and the file is your standing preference.
 | Variable         | Sets        | Notes                                     |
 |------------------|-------------|-------------------------------------------|
 | `WATCHDOWN_ROOT` | `outputDir` | Where the output folders go. `~` and `$HOME` are expanded, as in the config file. It does not move the cache, which stays at `cacheDir`. |
+| `WATCHDOWN_PROGRESS` | the live progress line | `always`, `never`, or `auto` (the default). `auto` falls back to what Java can see, which is whether **stdout** is a terminal — the wrong question, since stdout is usually redirected here. The launcher answers the right one with `[ -t 2 ]`. This is a display setting, not part of the resolved config. |
 
 ### Progress
 
@@ -149,6 +155,13 @@ time, a spinner, and a bar once the step knows how far along it is:
 [2/4] Transcribing  whisper small, lang=pt  ███████░░░░░░░  37%  2:41
 [3/4] Summarizing   gemma3:4b, 12 chunks    ██████░░░░░░░░  31%  4/12  0:52
 ```
+
+The line goes up when the step **starts**, not when it first has something to
+say. The first thing a run does is ask yt-dlp about the video, which can take
+a long time and prints nothing, so until the answer arrives the line carries
+what the step is waiting for: `[1/4] Downloading  ⠹  asking yt-dlp about the
+video  0:12`. The title replaces it once it is known, and `doing(...)` names
+each later wait — the captions, the audio, the file being measured.
 
 Steps report through the `Progress` interface: the summarizer counts chunks,
 and the download and transcription steps read the percentage yt-dlp prints
@@ -257,7 +270,7 @@ an existing file unless you also pass `--force`.
     "language": "auto",
     "chunkTokens": 3000,
     "maxKeyPoints": 10,
-    "sectionAttempts": 5
+    "sectionAttempts": 3
   }
 }
 ```
@@ -336,16 +349,18 @@ Whisper:
     tokens as `chars / 4`. Never split in the middle of a segment.
   - **Map:** summarize each chunk. The prompt contains the chunk's segments
     with `[mm:ss]` timestamps.
-  - **Reduce:** combine the chunk summaries into the final result: a title,
-    a TL;DR (2 or 3 sentences), up to `maxKeyPoints` key points (each with
-    one timestamp), and one short summary per section.
+  - **Reduce:** combine the chunk summaries into the final result: a TL;DR
+    (2 or 3 sentences), up to `maxKeyPoints` key points (each with one
+    timestamp), and one short summary per section. Never a title: the video
+    already has one, and a small model that has only seen the transcript
+    has been seen to invent a wrong one.
   - Skip the map step when the whole transcript fits in one chunk.
 - Ask for **JSON** output and map it into a `Summary` record with Spring AI
   structured output (`.entity(Summary.class)`). If parsing fails, retry
   **once** with a stricter reminder, then fail with exit code 6.
-- **Chase the sections.** A small model will often answer with a title, a
-  TL;DR and key points and no sections at all, which leaves `summary.md`
-  with nothing to read. When the reduce step produces no usable section —
+- **Chase the sections.** A small model will often answer with a TL;DR and
+  key points and no sections at all, which leaves `summary.md` with nothing
+  to read. When the reduce step produces no usable section —
   after validation, so a section whose moment was dropped counts as
   missing — ask again, up to `summary.sectionAttempts` attempts in total
   (the first ask included). Each attempt asks a *smaller* question than
@@ -356,12 +371,23 @@ Whisper:
     their own, as `{ "sections": [...] }`, which is a far easier thing to
     generate than the whole summary object. The number asked for starts at
     three and comes down by one each attempt, never below one.
-  Only the sections are taken from these answers: the title, TL;DR and key
-  points stay as the first good answer wrote them, so a later attempt can
-  add and never subtract. A failure inside the chase — a model error, an
-  unparseable answer — is just another failed attempt, never fatal. If
-  every attempt comes back empty the summary is still returned without
-  sections: no sections beats no summary.
+  Only the sections are taken from these answers: the TL;DR and key points
+  stay as the first good answer wrote them, so a later attempt can add and
+  never subtract. A failure inside the chase — a model error, an unparseable
+  answer — is just another failed attempt, never fatal.
+- **Then build them.** When the chase comes back empty, watchdown writes the
+  sections itself, because a part of the video is what a section is: a title
+  (the chapter's name, or `Part N`), the moment it starts, and what it says.
+  The map step already summarized every part, so those sections cost nothing
+  and their moments are ours rather than the model's; only the prose a part
+  opens with is kept, since the bullet list under it belongs to the key
+  points. A transcript short enough to have skipped the map step is
+  summarized in three parts now — the one case that spends extra calls, and
+  `sectionAttempts: 1` spends none, because the user asked for one call. A
+  part the model said nothing about is left out rather than rendered as an
+  empty heading. If even this comes back empty the summary is still returned
+  without sections: no sections beats no summary.
+- A field the model made up and added to the JSON is ignored, not fatal.
 - Keep prompts in `src/main/resources/prompts/*.st`. Don't build prompts
   inline in Java.
 - Summary language: `auto` means the language Whisper detected. Otherwise
@@ -475,7 +501,8 @@ Agent-readable digest of the YouTube video **<title>** by **<channel>**
 Both start with YAML front matter (`title`, `channel`, `url`, `video_id`,
 `duration_seconds`, `published`, `language`, `generated_at`), followed by:
 
-- `summary.md`: `# <title>`, the TL;DR paragraph, then `## Key points` with
+- `summary.md`: `# <title>` — the video's own title, never one the model
+  wrote — then the TL;DR paragraph, then `## Key points` with
   the same bullets as `AGENTS.md` (the heading is left out when there are
   none), then one `## <section title> ([mm:ss](…))` per section with its
   summary paragraph. The key points are deliberately in both files:
@@ -499,6 +526,7 @@ Both start with YAML front matter (`title`, `channel`, `url`, `video_id`,
 
 ```
 pom.xml
+watchdown                              # launcher shim for the project root
 bin/watchdown                          # launcher script
 src/main/java/com/boaglio/watchdown/
   WatchdownApplication.java            # @SpringBootApplication, non-web
@@ -574,12 +602,18 @@ src/test/resources/
   - slug generation: accents, emoji, length cap
   - local files: title and id from the path, rejecting a missing file or a
     directory, and rendering without a URL
-  - summary JSON parsing, the single retry, and dropping out-of-range
-    timestamps
+  - summary JSON parsing, the single retry, dropping out-of-range
+    timestamps, and ignoring fields the model invented
+  - the sections watchdown builds itself: from the chunk summaries when the
+    map step ran, by summarizing the parts when it did not, leaving out a
+    part the model said nothing about, and spending no call of its own when
+    `sectionAttempts` is 1
   - the sloppy JSON a small model really produces: clock timestamps, leading
     zeros, Markdown fences, prose around the object, single quotes, and a
     moment that is null, absent or not even a scalar
   - exit-code mapping for each exception type
+  - the reporter: the line and the spinner before the step knows anything, the
+    title joining the line already on screen, `WATCHDOWN_PROGRESS`
   - the reporter: a plain line per step when the output is piped, a bar and a
     spinner on a terminal, and one clean line left behind either way
   - progress parsing from what yt-dlp and whisper print

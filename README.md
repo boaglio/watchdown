@@ -22,7 +22,16 @@ $ watchdown --captions only https://www.youtube.com/watch?v=aircAruvnKk
 
 Progress goes to **stderr**; the folder path goes to **stdout**, so watchdown pipes cleanly.
 On a terminal the slow steps show a live bar (`███████░░░░░░░ 37% 4/12 0:52`) so you can tell
-working from stuck.
+working from stuck. The line is there from the first moment, before watchdown knows what the
+video even is, and it says what it is waiting for:
+
+```
+[1/4] Downloading  ⠹  asking yt-dlp about the video  0:12
+```
+
+That first call is often the slowest part of a run, and this is how you can tell it is still
+going. Redirecting stdout keeps the progress line — `WATCHDOWN_PROGRESS=never` turns it off, and
+`always` forces it on when watchdown is started without the launcher.
 
 You get one folder per video:
 
@@ -81,9 +90,15 @@ not.
 
 ```bash
 git clone https://github.com/boaglio/watchdown && cd watchdown
-bin/watchdown --help          # builds the jar on first run
-ln -s "$PWD/bin/watchdown" ~/.local/bin/watchdown
+./watchdown --help            # builds the jar on first run
+ln -s "$PWD/bin/watchdown" ~/.local/bin/watchdown   # then run it from anywhere
 ```
+
+`./watchdown` in the project root and `bin/watchdown` are the same launcher: the root one is
+there to be run from the checkout, and `bin/watchdown` is the one to link onto your PATH, since
+it follows symlinks back to the project. Either builds `target/watchdown.jar` when it is missing
+and passes your arguments and exit code straight through. `WATCHDOWN_JAR` runs a different jar,
+and `JAVA_OPTS` goes to the JVM (`JAVA_OPTS=-Xmx2g ./watchdown ...`).
 
 ## Captions or whisper
 
@@ -119,13 +134,35 @@ watchdown [OPTIONS] [<url>...]
 
 Settings resolve **flag > environment > config file > default**. `watchdown --init-config` writes
 the defaults to `~/.config/watchdown/config.json` as a starting point; `export WATCHDOWN_ROOT=~/notes`
-sets the output root for a shell.
+sets the output root for a shell, and `WATCHDOWN_PROGRESS=never` silences the live progress line.
 
 Several inputs run in one go, and one failure never stops the rest:
 
 ```bash
 watchdown https://youtu.be/A https://youtu.be/B --file talk.m4a
 ```
+
+## How long a video can it take?
+
+Measured on real transcripts, speech runs about **300 tokens a minute**, plus the `[mm:ss]`
+markers. Against the shipped defaults that puts the walls here:
+
+| Length          | What you hit                                                                 |
+|-----------------|------------------------------------------------------------------------------|
+| **up to ~1 h**  | Nothing. This is the comfortable range.                                       |
+| **1–2 h**       | `whisper.timeoutMinutes: 120`. The `small` model on a CPU runs at around real time, so a two-hour video can run out of time and exit `5`. Captions avoid it entirely, and so does `whisper.device: cuda`. |
+| **2–4 h**       | `ytDlp.timeoutMinutes: 15` on a slow connection — that is a few hundred MB of audio. |
+| **beyond ~4 h** | The final summarizing call. Around forty chunk summaries fill `ollama.numCtx: 8192`. |
+
+Every one of those is a number in `config.json`, so a long video is a matter of raising the
+limit that stops you, not of a limit in the tool.
+
+**Chapters are the exception worth knowing about.** A chaptered video gets one chunk per chapter,
+whatever the chapter's size, so a chapter longer than about **20 minutes** overflows `numCtx` on
+its own — and Ollama silently drops the overflow rather than complaining, which shows up as a
+summary that skips part of that chapter. A three-hour video in twenty chapters is fine; a
+one-hour video in two is not. Raise `ollama.numCtx` (a model with a bigger context window and the
+memory to back it) if your videos look like the second kind.
 
 ## Good to know
 

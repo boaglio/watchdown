@@ -63,7 +63,20 @@ class SloppyModelJsonTest {
                 { "title": "T", "tldr": "D", "keyPoints": [], "sections": [] }
                 ```""");
 
-        assertThat(summary.title()).isEqualTo("T");
+        assertThat(summary.tldr()).isEqualTo("D");
+    }
+
+    @Test
+    void ignoresTheFieldsTheModelAddedOnItsOwn() {
+        // A title it was not asked for, and a speaker it invented: worth ignoring, not worth
+        // losing a whole summary over.
+        Summary summary = convert("""
+                { "title": "T", "tldr": "D", "mood": "cheerful",
+                  "keyPoints": [{ "text": "a", "timestamp": 10, "speaker": "host" }],
+                  "sections": [] }""");
+
+        assertThat(summary.tldr()).isEqualTo("D");
+        assertThat(summary.keyPoints()).hasSize(1);
     }
 
     @Test
@@ -73,7 +86,7 @@ class SloppyModelJsonTest {
                   keyPoints: [{ text: 'a', timestamp: 10 },],
                   sections: [] }""");
 
-        assertThat(summary.title()).isEqualTo("T");
+        assertThat(summary.tldr()).isEqualTo("D");
         assertThat(summary.keyPoints()).hasSize(1);
     }
 

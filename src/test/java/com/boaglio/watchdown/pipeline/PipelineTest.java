@@ -278,7 +278,7 @@ class PipelineTest {
     }
 
     private static Summarizer summarizer() {
-        return (metadata, transcript, progress) -> new Summary("A title", "A TL;DR.",
+        return (metadata, transcript, progress) -> new Summary("A TL;DR.",
                 List.of(new KeyPoint("A point", 10)),
                 List.of(new Section("A section", 0, "What happens here.")));
     }

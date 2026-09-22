@@ -117,7 +117,7 @@ public class MarkdownRenderer {
 
         StringBuilder out = new StringBuilder();
         frontMatter(out, request);
-        out.append("# ").append(Markdown.escape(summary.title())).append("\n\n");
+        out.append("# ").append(Markdown.escape(metadata.title())).append("\n\n");
         out.append(Markdown.escape(summary.tldr())).append("\n\n");
 
         if (!summary.keyPoints().isEmpty()) {
@@ -127,7 +127,7 @@ public class MarkdownRenderer {
         }
 
         if (summary.sections().isEmpty()) {
-            out.append("_The model returned no sections._\n");
+            out.append("_No sections: the model wrote none, and none could be built._\n");
             return out.toString();
         }
         for (Section section : summary.sections()) {

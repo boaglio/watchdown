@@ -5,8 +5,10 @@
 #   bin/watchdown --captions only https://youtu.be/VIDEO_ID
 #
 # Environment:
-#   WATCHDOWN_JAR  run this jar instead of target/watchdown.jar
-#   JAVA_OPTS      extra options for the JVM, for example -Xmx2g
+#   WATCHDOWN_JAR      run this jar instead of target/watchdown.jar
+#   JAVA_OPTS          extra options for the JVM, for example -Xmx2g
+#   WATCHDOWN_PROGRESS always | never | auto — whether to draw the live progress line. Unset, the
+#                      launcher answers it by looking at stderr.
 #
 set -euo pipefail
 
@@ -37,6 +39,13 @@ if [ ! -f "$jar" ]; then
         echo "watchdown: the build failed, see the output above" >&2
         exit 1
     fi
+fi
+
+# Java cannot see whether stderr is a terminal: java.io.Console answers for stdout, and watchdown's
+# stdout is usually redirected, since that is where the output folder paths go. The shell can see
+# it, so it tells the jar, and a piped run keeps its progress line.
+if [ -z "${WATCHDOWN_PROGRESS:-}" ] && [ -t 2 ]; then
+    export WATCHDOWN_PROGRESS=always
 fi
 
 # JAVA_OPTS is deliberately unquoted: it may carry several options.
